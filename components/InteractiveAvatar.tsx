@@ -39,8 +39,10 @@ export default function InteractiveAvatar({
   const [isLoadingRepeat, setIsLoadingRepeat] = useState(false);
   const [stream, setStream] = useState<MediaStream>();
   const [debug, setDebug] = useState<string>();
-  const [knowledgeId, setKnowledgeId] = useState<string>("");
-  const [avatarId, setAvatarId] = useState<string>("Anna_public_3_20240108");
+  const [knowledgeId, setKnowledgeId] = useState<string>(
+    "cdbf3472cd794ebca11c75979adf8ba5"
+  );
+  const [avatarId, setAvatarId] = useState<string>("Shawn_Therapist_public");
   const [language, setLanguage] = useState<string>("ja");
   const [isMicActive, setIsMicActive] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -54,7 +56,7 @@ export default function InteractiveAvatar({
   const [isUserTalking, setIsUserTalking] = useState(false);
 
   const [customPrompt, setCustomPrompt] = useState<string>(
-    "あなたは親切なアシスタントです。日本語で簡潔に応答してください。専門用語は避け、わかりやすく説明してください。"
+    "あなたは親切なアシスタントです。質問に対して、提供されたナレッジベースの情報を優先的に使用して回答してください。ナレッジベースに情報がない場合は、一般的な知識に基づいて回答してください。HeyGenやインタラクティブアバターについての説明は避け、ユーザーの質問に直接関連する内容だけを話してください。"
   );
   const [llmProvider, setLlmProvider] = useState<string>("openai");
   const [llmModel, setLlmModel] = useState<string>("gpt-4");
