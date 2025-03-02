@@ -1,11 +1,10 @@
 import "@/styles/globals.css";
 import clsx from "clsx";
-import { Metadata, Viewport } from "next";
+import { Metadata } from "next";
 
 import { Providers } from "./providers";
 
 import { Fira_Code as FontMono, Inter as FontSans } from "next/font/google";
-import NavBar from "@/components/NavBar";
 
 const fontSans = FontSans({
   subsets: ["latin"],
@@ -19,19 +18,12 @@ const fontMono = FontMono({
 
 export const metadata: Metadata = {
   title: {
-    default: "HeyGen Interactive Avatar SDK Demo",
-    template: `%s - HeyGen Interactive Avatar SDK Demo`,
+    default: "HeyGen Interactive Avatar",
+    template: `%s - HeyGen Interactive Avatar`,
   },
   icons: {
     icon: "/heygen-logo.png",
   },
-};
-
-export const viewport: Viewport = {
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "white" },
-    { media: "(prefers-color-scheme: dark)", color: "black" },
-  ],
 };
 
 export default function RootLayout({
@@ -40,18 +32,17 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html
-      suppressHydrationWarning
-      lang="en"
-      className={`${fontSans.variable} ${fontMono.variable} font-sans`}
-    >
+    <html lang="ja" suppressHydrationWarning>
       <head />
-      <body className={clsx("min-h-screen bg-background antialiased")}>
-        <Providers themeProps={{ attribute: "class", defaultTheme: "dark" }}>
-          <main className="relative flex flex-col h-screen w-screen">
-            <NavBar />
-            {children}
-          </main>
+      <body
+        className={clsx(
+          "min-h-screen font-sans antialiased",
+          fontSans.variable,
+          fontMono.variable
+        )}
+      >
+        <Providers>
+          <main className="w-full h-screen">{children}</main>
         </Providers>
       </body>
     </html>
