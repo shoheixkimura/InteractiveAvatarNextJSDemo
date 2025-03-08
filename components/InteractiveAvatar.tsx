@@ -40,7 +40,7 @@ export default function InteractiveAvatar({
   const [stream, setStream] = useState<MediaStream>();
   const [debug, setDebug] = useState<string>();
   const [knowledgeId, setKnowledgeId] = useState<string>(
-    "cdbf3472cd794ebca11c75979adf8ba5"
+    "d9d944d6a489422fbef04ad1493e7409"
   );
   const [avatarId, setAvatarId] = useState<string>("Shawn_Therapist_public");
   const [language, setLanguage] = useState<string>("ja");
@@ -188,7 +188,7 @@ export default function InteractiveAvatar({
         avatarName: avatarId,
         knowledgeId: knowledgeId,
         voice: {
-          rate: 1.5,
+          rate: 1.2,
           emotion: VoiceEmotion.FRIENDLY,
         },
         language: language,
