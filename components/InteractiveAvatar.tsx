@@ -87,7 +87,7 @@ export default function InteractiveAvatar({
             });
           }
         } catch (error) {
-          console.error("セッション終了中にエラーが発生しました:", error);
+          console.error("セッション終了中にエラーが発生しました。:", error);
         }
       }
     };
