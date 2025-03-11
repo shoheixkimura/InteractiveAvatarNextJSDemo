@@ -42,7 +42,10 @@ export default function InteractiveAvatar({
   const [knowledgeId, setKnowledgeId] = useState<string>(
     "d9d944d6a489422fbef04ad1493e7409"
   );
-  const [avatarId, setAvatarId] = useState<string>("Shawn_Therapist_public");
+  const [avatarId, setAvatarId] = useState<string>(
+    //"Shawn_Therapist_public"
+    "cceeff67329f44c796048d50277375cf"
+  );
   const [language, setLanguage] = useState<string>("ja");
   const [isMicActive, setIsMicActive] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -63,6 +66,12 @@ export default function InteractiveAvatar({
 
   const livekitUrl = process.env.LIVEKIT_URL;
   const livekitApiKey = process.env.LIVEKIT_API_KEY;
+
+  // セッション開始状態を追跡する新しい状態変数
+  const [isStartingSession, setIsStartingSession] = useState(false);
+
+  // この1行を追加
+  const isInitialMount = useRef(true);
 
   useEffect(() => {
     const savedSessionId = localStorage.getItem("heygen_session_id");
@@ -143,6 +152,10 @@ export default function InteractiveAvatar({
   }
 
   async function startSession() {
+    // 既にセッション開始中なら何もしない
+    if (isStartingSession || isLoadingSession) return;
+
+    setIsStartingSession(true);
     setIsLoadingSession(true);
     try {
       if (sessionId) {
@@ -221,6 +234,7 @@ export default function InteractiveAvatar({
       }
     } finally {
       setIsLoadingSession(false);
+      setIsStartingSession(false);
     }
   }
 
@@ -349,7 +363,8 @@ export default function InteractiveAvatar({
   }, [text, previousText]);
 
   useEffect(() => {
-    if (fullScreenMode) {
+    if (fullScreenMode && isInitialMount.current) {
+      isInitialMount.current = false;
       startSession();
     }
 
