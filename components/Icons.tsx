@@ -1,5 +1,15 @@
+import Image from "next/image";
+
 export function HeyGenLogo() {
-  return <img src="/heygen-logo.png" className="h-8" alt="HeyGen Logo" />;
+  return (
+    <Image
+      src="/heygen-logo.png"
+      alt="HeyGen Logo"
+      width={32}
+      height={32}
+      className="h-8"
+    />
+  );
 }
 
 type IconSvgProps = {
