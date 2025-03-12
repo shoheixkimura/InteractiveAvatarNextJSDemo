@@ -138,19 +138,38 @@ export default function InteractiveAvatar({
 
   async function fetchAccessToken() {
     try {
+      setDebug("アクセストークンをリクエスト中...");
       const response = await fetch("/api/get-access-token", {
         method: "POST",
       });
-      const token = await response.text();
 
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(
+          `アクセストークン取得エラー: ${response.status} ${response.statusText}${
+            errorData
+              ? ` - ${errorData.details || errorData.error || JSON.stringify(errorData)}`
+              : ""
+          }`
+        );
+      }
+
+      const token = await response.text();
       console.log("Access Token:", token);
 
+      if (!token || token.trim() === "") {
+        throw new Error("空のアクセストークンが返されました");
+      }
+
+      setDebug("アクセストークンを取得しました");
       return token;
     } catch (error) {
       console.error("Error fetching access token:", error);
+      setDebug(
+        `アクセストークン取得エラー: ${error instanceof Error ? error.message : "不明なエラー"}`
+      );
+      throw error; // エラーを再スローして呼び出し元で処理できるようにする
     }
-
-    return "";
   }
 
   async function startSession() {
@@ -159,45 +178,74 @@ export default function InteractiveAvatar({
 
     setIsStartingSession(true);
     setIsLoadingSession(true);
+    setDebug("セッション開始中...");
+
     try {
+      // AudioContextを初期化（LiveKitの問題対策）
+      initAudioContext();
+
       if (sessionId) {
+        setDebug("前回のセッションをクリーンアップ中...");
         await cleanupPreviousSession(sessionId);
       }
 
+      setDebug("アクセストークン取得中...");
       const newToken = await fetchAccessToken();
 
+      if (!newToken) {
+        throw new Error("アクセストークンの取得に失敗しました");
+      }
+
+      setDebug("StreamingAvatarを初期化中...");
       avatar.current = new StreamingAvatar({
         token: newToken,
       });
 
+      // イベントリスナーの設定
+      setDebug("イベントリスナーを設定中...");
+
       avatar.current.on(StreamingEvents.AVATAR_START_TALKING, (e) => {
         console.log("Avatar started talking", e);
+        setDebug("アバターが話し始めました");
       });
 
       avatar.current.on(StreamingEvents.AVATAR_STOP_TALKING, (e) => {
         console.log("Avatar stopped talking", e);
+        setDebug("アバターが話し終わりました");
       });
 
       avatar.current.on(StreamingEvents.STREAM_DISCONNECTED, () => {
         console.log("Stream disconnected");
+        setDebug("ストリームが切断されました");
         endSession();
       });
 
-      avatar.current?.on(StreamingEvents.STREAM_READY, (event) => {
+      avatar.current.on(StreamingEvents.STREAM_READY, (event) => {
         console.log("Stream ready:", event.detail);
+        setDebug("ストリームの準備ができました");
         setStream(event.detail);
       });
 
-      avatar.current?.on(StreamingEvents.USER_START, (event) => {
+      avatar.current.on(StreamingEvents.USER_START, (event) => {
         console.log("User started talking:", event);
+        setDebug("ユーザーが話し始めました");
         setIsUserTalking(true);
       });
 
-      avatar.current?.on(StreamingEvents.USER_STOP, (event) => {
+      avatar.current.on(StreamingEvents.USER_STOP, (event) => {
         console.log("User stopped talking:", event);
+        setDebug("ユーザーが話し終わりました");
         setIsUserTalking(false);
       });
 
+      // エラーイベントのリスナーを追加
+      // StreamingEvents.ERRORは存在しないため、一般的なエラーハンドリングを強化
+      window.addEventListener("error", (event) => {
+        console.error("Window error:", event);
+        setDebug(`ウィンドウエラー: ${event.message}`);
+      });
+
+      setDebug("アバターセッション作成中...");
       const res = await avatar.current.createStartAvatar({
         quality: AvatarQuality.Medium,
         avatarName: avatarId,
@@ -208,20 +256,49 @@ export default function InteractiveAvatar({
         },
         language: language,
         disableIdleTimeout: true,
+        llm: {
+          provider: llmProvider,
+          model: llmModel,
+          systemPrompt: customPrompt,
+        },
       } as any);
 
-      if (res && res.sessionId) {
-        setSessionId(res.sessionId);
-        localStorage.setItem("heygen_session_id", res.sessionId);
+      console.log("Avatar session response:", res);
+
+      // session_idプロパティを確認（HeyGen APIはスネークケースを使用）
+      if (res && (res.sessionId || res.session_id)) {
+        const sessionIdValue = res.sessionId || res.session_id;
+        setSessionId(sessionIdValue);
+        localStorage.setItem("heygen_session_id", sessionIdValue);
+        setDebug(`セッションID: ${sessionIdValue}`);
+      } else {
+        console.error("セッションIDが取得できませんでした。レスポンス:", res);
+        throw new Error("セッションIDが取得できませんでした");
       }
 
       setData(res);
 
-      await avatar.current?.startVoiceChat({
+      setDebug("音声チャット開始中...");
+      await avatar.current.startVoiceChat({
         useSilencePrompt: false,
       });
 
+      // マイクの権限を確認
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+        stream.getTracks().forEach((track) => track.stop()); // 確認後にストリームを停止
+        setDebug("マイクの権限が許可されています");
+      } catch (micError) {
+        console.error("マイクの権限エラー:", micError);
+        setDebug(
+          `マイクの権限が許可されていません: ${micError instanceof Error ? micError.message : "不明なエラー"}`
+        );
+      }
+
       setChatMode("voice_mode");
+      setDebug("セッション開始完了");
     } catch (error) {
       console.error("Error starting avatar session:", error);
       setDebug(
@@ -231,6 +308,16 @@ export default function InteractiveAvatar({
       if (fullScreenMode) {
         setStream(undefined);
         setFullScreenMode(false);
+      }
+
+      // エラー発生時にアバターインスタンスをクリーンアップ
+      if (avatar.current) {
+        try {
+          await avatar.current.stopAvatar();
+        } catch (cleanupError) {
+          console.error("Cleanup error:", cleanupError);
+        }
+        avatar.current = null;
       }
     } finally {
       setIsLoadingSession(false);
@@ -285,12 +372,37 @@ export default function InteractiveAvatar({
   }
 
   const toggleMicrophone = async () => {
-    if (isMicActive) {
-      avatar.current?.stopListening();
-      setIsMicActive(false);
-    } else {
-      await avatar.current?.startListening();
-      setIsMicActive(true);
+    try {
+      if (isMicActive) {
+        setDebug("マイクをオフにしています...");
+        await avatar.current?.stopListening();
+        setIsMicActive(false);
+        setDebug("マイクがオフになりました");
+      } else {
+        setDebug("マイクをオンにしています...");
+        // マイクの権限を確認
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+          });
+          stream.getTracks().forEach((track) => track.stop()); // 確認後にストリームを停止
+        } catch (micError) {
+          console.error("マイクの権限エラー:", micError);
+          setDebug(
+            `マイクの権限が許可されていません: ${micError instanceof Error ? micError.message : "不明なエラー"}`
+          );
+          return; // 権限がない場合は処理を中断
+        }
+
+        await avatar.current?.startListening();
+        setIsMicActive(true);
+        setDebug("マイクがオンになりました - 話しかけてください");
+      }
+    } catch (error) {
+      console.error("マイク切り替えエラー:", error);
+      setDebug(
+        `マイク切り替えエラー: ${error instanceof Error ? error.message : "不明なエラー"}`
+      );
     }
   };
 
@@ -367,7 +479,8 @@ export default function InteractiveAvatar({
   useEffect(() => {
     if (fullScreenMode && isInitialMount.current) {
       isInitialMount.current = false;
-      startSession();
+      // 自動セッション開始を無効化し、ユーザーインタラクション後に手動で開始するように変更
+      // startSession();
     }
 
     return () => {
@@ -384,6 +497,56 @@ export default function InteractiveAvatar({
       };
     }
   }, [mediaStream, stream]);
+
+  // AudioContextの問題に対処するための関数
+  const initAudioContext = () => {
+    try {
+      // AudioContextを初期化
+      const AudioContext =
+        window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContext) {
+        const audioCtx = new AudioContext();
+        // 一時的な音を生成して再生（無音）
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        gainNode.gain.value = 0; // 無音に設定
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.001);
+        setDebug("AudioContextが初期化されました");
+
+        // LiveKitのAudioContextを初期化するためのダミー音声再生
+        const audio = new Audio();
+        audio.src =
+          "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
+        audio.play().catch((e) => console.log("Silent audio play failed:", e));
+      }
+    } catch (error) {
+      console.error("AudioContext初期化エラー:", error);
+    }
+  };
+
+  // ページ読み込み時にクリックイベントリスナーを追加
+  useEffect(() => {
+    const handleUserInteraction = () => {
+      initAudioContext();
+      // 一度だけ実行するためにイベントリスナーを削除
+      document.removeEventListener("click", handleUserInteraction);
+      document.removeEventListener("touchstart", handleUserInteraction);
+      document.removeEventListener("keydown", handleUserInteraction);
+    };
+
+    document.addEventListener("click", handleUserInteraction);
+    document.addEventListener("touchstart", handleUserInteraction);
+    document.addEventListener("keydown", handleUserInteraction);
+
+    return () => {
+      document.removeEventListener("click", handleUserInteraction);
+      document.removeEventListener("touchstart", handleUserInteraction);
+      document.removeEventListener("keydown", handleUserInteraction);
+    };
+  }, []);
 
   if (fullScreenMode) {
     return (
@@ -554,8 +717,22 @@ export default function InteractiveAvatar({
             )}
           </>
         ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-indigo-500"></div>
+          <div className="w-full h-full flex items-center justify-center flex-col">
+            <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-indigo-500 mb-8"></div>
+            <button
+              onClick={() => {
+                initAudioContext();
+                setTimeout(() => {
+                  startSession();
+                }, 500);
+              }}
+              className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+            >
+              セッションを手動で開始
+            </button>
+            <p className="mt-4 text-gray-600 dark:text-gray-300">
+              ※ブラウザの制限により、ユーザーの操作後にセッションを開始する必要があります
+            </p>
           </div>
         )}
       </div>
