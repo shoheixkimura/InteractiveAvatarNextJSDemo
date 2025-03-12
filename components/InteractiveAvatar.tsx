@@ -256,6 +256,7 @@ export default function InteractiveAvatar({
         },
         language: language,
         disableIdleTimeout: true,
+        enableIntroMessage: true, // イントロメッセージを有効化
         llm: {
           provider: llmProvider,
           model: llmModel,
@@ -282,6 +283,11 @@ export default function InteractiveAvatar({
       await avatar.current.startVoiceChat({
         useSilencePrompt: false,
       });
+
+      // セッション開始後、少し待ってからイントロメッセージを再生
+      setTimeout(() => {
+        playIntroMessage();
+      }, 2000);
 
       // マイクの権限を確認
       try {
@@ -324,6 +330,29 @@ export default function InteractiveAvatar({
       setIsStartingSession(false);
     }
   }
+
+  // イントロメッセージを手動で再生する関数
+  const playIntroMessage = async () => {
+    if (!avatar.current) {
+      setDebug("アバターが初期化されていません");
+      return;
+    }
+
+    try {
+      setDebug("イントロメッセージを再生中...");
+      // イントロメッセージを再生するためのAPIコール
+      await avatar.current.speak({
+        text: "こんにちは！何かお手伝いできることはありますか？",
+        taskType: TaskType.TALK, // INTROではなくTALKを使用
+        taskMode: TaskMode.SYNC,
+      });
+    } catch (error) {
+      console.error("イントロメッセージ再生エラー:", error);
+      setDebug(
+        `イントロメッセージ再生エラー: ${error instanceof Error ? error.message : "不明なエラー"}`
+      );
+    }
+  };
 
   async function handleSpeak() {
     setIsLoadingRepeat(true);
@@ -877,6 +906,24 @@ export default function InteractiveAvatar({
               </Button>
             </div>
           )}
+          <Button
+            color="primary"
+            variant="flat"
+            onClick={toggleMicrophone}
+            isDisabled={!sessionId || isLoadingSession}
+            className="w-full"
+          >
+            {isMicActive ? "マイクをオフにする" : "マイクをオンにする"}
+          </Button>
+          <Button
+            color="secondary"
+            variant="flat"
+            onClick={playIntroMessage}
+            isDisabled={!sessionId || isLoadingSession}
+            className="w-full"
+          >
+            イントロメッセージを再生
+          </Button>
         </CardFooter>
       </Card>
       <p className="font-mono text-right">
