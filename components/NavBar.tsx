@@ -26,38 +26,38 @@ export default function NavBar() {
       <NavbarContent justify="center">
         <NavbarItem className="flex flex-row items-center gap-4">
           <Link
-            isExternal
             color="foreground"
             href="https://labs.heygen.com/interactive-avatar"
+            isExternal
           >
             Avatars
           </Link>
           <Link
-            isExternal
             color="foreground"
             href="https://docs.heygen.com/reference/list-voices-v2"
+            isExternal
           >
             Voices
           </Link>
           <Link
-            isExternal
             color="foreground"
             href="https://docs.heygen.com/reference/new-session-copy"
+            isExternal
           >
             API Docs
           </Link>
           <Link
-            isExternal
             color="foreground"
             href="https://help.heygen.com/en/articles/9182113-interactive-avatar-101-your-ultimate-guide"
+            isExternal
           >
             Guide
           </Link>
           <Link
-            isExternal
             aria-label="Github"
-            href="https://github.com/HeyGen-Official/StreamingAvatarSDK"
             className="flex flex-row justify-center gap-1 text-foreground"
+            href="https://github.com/HeyGen-Official/StreamingAvatarSDK"
+            isExternal
           >
             <GithubIcon className="text-default-500" />
             SDK
