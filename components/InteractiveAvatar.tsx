@@ -30,10 +30,12 @@ import { AVATARS, STT_LANGUAGE_LIST } from "@/app/lib/constants";
 
 interface InteractiveAvatarProps {
   fullScreenMode?: boolean;
+  setFullScreenMode?: (mode: boolean) => void;
 }
 
 export default function InteractiveAvatar({
   fullScreenMode = false,
+  setFullScreenMode = () => {},
 }: InteractiveAvatarProps) {
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [isLoadingRepeat, setIsLoadingRepeat] = useState(false);
@@ -222,10 +224,13 @@ export default function InteractiveAvatar({
       setChatMode("voice_mode");
     } catch (error) {
       console.error("Error starting avatar session:", error);
-      setDebug(`セッション開始エラー: ${error.message}`);
+      setDebug(
+        `セッション開始エラー: ${error instanceof Error ? error.message : "不明なエラー"}`
+      );
 
       if (fullScreenMode) {
         setStream(undefined);
+        setFullScreenMode(false);
       }
     } finally {
       setIsLoadingSession(false);
@@ -330,7 +335,9 @@ export default function InteractiveAvatar({
       startSession();
     } catch (error) {
       console.error("設定の保存中にエラーが発生しました:", error);
-      setDebug(`設定の保存中にエラー: ${error.message}`);
+      setDebug(
+        `設定の保存中にエラー: ${error instanceof Error ? error.message : "不明なエラー"}`
+      );
     } finally {
       setIsLoadingSession(false);
     }
