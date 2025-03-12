@@ -1,5 +1,5 @@
 import { Input, Spinner, Tooltip } from "@nextui-org/react";
-import { Airplane, ArrowRight, PaperPlaneRight } from "@phosphor-icons/react";
+import { PaperPlaneRight } from "@phosphor-icons/react";
 import clsx from "clsx";
 
 interface StreamingAvatarTextInputProps {
@@ -33,6 +33,7 @@ export default function InteractiveAvatarTextInput({
 
   return (
     <Input
+      disabled={disabled}
       endContent={
         <div className="flex flex-row items-center h-full">
           {endContent}
@@ -40,14 +41,14 @@ export default function InteractiveAvatarTextInput({
             {loading ? (
               <Spinner
                 className="text-indigo-300 hover:text-indigo-200"
-                size="sm"
                 color="default"
+                size="sm"
               />
             ) : (
               <button
-                type="submit"
                 className="focus:outline-none"
                 onClick={handleSubmit}
+                type="submit"
               >
                 <PaperPlaneRight
                   className={clsx(
@@ -62,16 +63,15 @@ export default function InteractiveAvatarTextInput({
         </div>
       }
       label={label}
-      placeholder={placeholder}
-      size="sm"
-      value={input}
       onKeyDown={(e) => {
         if (e.key === "Enter") {
           handleSubmit();
         }
       }}
       onValueChange={setInput}
-      isDisabled={disabled}
+      placeholder={placeholder}
+      size="sm"
+      value={input}
     />
   );
 }
