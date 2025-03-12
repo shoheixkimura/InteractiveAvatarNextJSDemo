@@ -206,12 +206,7 @@ export default function InteractiveAvatar({
         },
         language: language,
         disableIdleTimeout: true,
-        llm: {
-          provider: llmProvider,
-          model: llmModel,
-          systemPrompt: customPrompt,
-        },
-      });
+      } as any);
 
       if (res && res.sessionId) {
         setSessionId(res.sessionId);
