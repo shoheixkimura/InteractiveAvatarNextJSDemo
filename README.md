@@ -1,54 +1,76 @@
-# HeyGen Interactive Avatar NextJS Demo
+# Interactive Avatar Next.js Demo
 
-![HeyGen Interactive Avatar NextJS Demo Screenshot](./public/demo.png)
+This is a demonstration project showcasing interactive 3D avatars in a Next.js application using Three.js, React Three Fiber, and speech recognition.
 
-This is a sample project and was bootstrapped using [NextJS](https://nextjs.org/).
-Feel free to play around with the existing code and please leave any feedback for the SDK [here](https://github.com/HeyGen-Official/StreamingAvatarSDK/discussions).
+## Features
 
-## Getting Started FAQ
+- 3D avatar visualization with Three.js and React Three Fiber
+- Real-time avatar animations and expressions
+- Speech recognition for voice interaction
+- Chat interface for text-based interaction
+- Responsive design for desktop and mobile devices
 
-### Setting up the demo
+## Technologies Used
 
-1. Clone this repo
+- Next.js 14
+- TypeScript
+- Three.js
+- React Three Fiber & Drei
+- Tailwind CSS
+- Zustand for state management
+- Web Speech API
 
-2. Navigate to the repo folder in your terminal
+## Getting Started
 
-3. Run `npm install` (assuming you have npm installed. If not, please follow these instructions: https://docs.npmjs.com/downloading-and-installing-node-js-and-npm/)
+### Prerequisites
 
-4. Enter your HeyGen Enterprise API Token or Trial Token in the `.env` file. Replace `HEYGEN_API_KEY` with your API key. This will allow the Client app to generate secure Access Tokens with which to create interactive sessions.
+- Node.js 18.x or later
+- npm or yarn
 
-   You can retrieve either the API Key or Trial Token by logging in to HeyGen and navigating to this page in your settings: [https://app.heygen.com/settings?nav=API]. NOTE: use the trial token if you don't have an enterprise API token yet.
+### Installation
 
-5. (Optional) If you would like to use the OpenAI features, enter your OpenAI Api Key in the `.env` file.
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/InteractiveAvatarNextJSDemo.git
+   cd InteractiveAvatarNextJSDemo
+   ```
 
-6. Run `npm run dev`
+2. Install dependencies:
+   ```bash
+   npm install
+   # or
+   yarn install
+   ```
 
-### Difference between Trial Token and Enterprise API Token
+3. Run the development server:
+   ```bash
+   npm run dev
+   # or
+   yarn dev
+   ```
 
-The HeyGen Trial Token is available to all users, not just Enterprise users, and allows for testing of the Interactive Avatar API, as well as other HeyGen API endpoints.
+4. Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-Each Trial Token is limited to 3 concurrent interactive sessions. However, every interactive session you create with the Trial Token is free of charge, no matter how many tasks are sent to the avatar. Please note that interactive sessions will automatically close after 10 minutes of no tasks sent.
+## Project Structure
 
-If you do not 'close' the interactive sessions and try to open more than 3, you will encounter errors including stuttering and freezing of the Interactive Avatar. Please endeavor to only have 3 sessions open at any time while you are testing the Interactive Avatar API with your Trial Token.
+```
+src/
+├── app/             # Next.js App Router
+├── components/
+│   ├── avatar/      # 3D avatar components
+│   └── ui/          # UI components
+├── hooks/           # Custom React hooks
+├── lib/             # Utility functions
+├── store/           # Zustand store
+└── types/           # TypeScript type definitions
+```
 
-### Starting sessions
+## License
 
-NOTE: Make sure you have enter your token into the `.env` file and run `npm run dev`.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-To start your 'session' with a Interactive Avatar, first click the 'start' button. If your HeyGen API key is entered into the Server's .env file, then you should see our demo Interactive Avatar (Monica!) appear.
+## Acknowledgments
 
-After you see Monica appear on the screen, you can enter text into the input labeled 'Repeat', and then hit Enter. The Interactive Avatar will say the text you enter.
-
-If you want to see a different Avatar or try a different voice, you can close the session and enter the IDs and then 'start' the session again. Please see below for information on where to retrieve different Avatar and voice IDs that you can use.
-
-### Which Avatars can I use with this project?
-
-By default, there are several Public Avatars that can be used in Interactive Avatar. (AKA Interactive Avatars.) You can find the Avatar IDs for these Public Avatars by navigating to [app.heygen.com/interactive-avatar](https://app.heygen.com/interactive-avatar) and clicking 'Select Avatar' and copying the avatar id.
-
-In order to use a private Avatar created under your own account in Interactive Avatar, it must be upgraded to be a Interactive Avatar. Only 1. Finetune Instant Avatars and 2. Studio Avatars are able to be upgraded to Interactive Avatars. This upgrade is a one-time fee and can be purchased by navigating to [app.heygen.com/interactive-avatar] and clicking 'Select Avatar'.
-
-Please note that Photo Avatars are not compatible with Interactive Avatar and cannot be used.
-
-### Where can I read more about enterprise-level usage of the Interactive Avatar API?
-
-Please read our Interactive Avatar 101 article for more information on pricing and how to increase your concurrent session limit: https://help.heygen.com/en/articles/9182113-interactive-avatar-101-your-ultimate-guide
+- [Three.js](https://threejs.org/)
+- [React Three Fiber](https://github.com/pmndrs/react-three-fiber)
+- [Next.js](https://nextjs.org/)

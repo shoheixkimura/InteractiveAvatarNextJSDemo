@@ -75,6 +75,14 @@ export default function InteractiveAvatar({
   // この1行を追加
   const isInitialMount = useRef(true);
 
+  // カメラ関連の状態変数を追加
+  const [cameraEnabled, setCameraEnabled] = useState(false);
+  const [cameraDescription, setCameraDescription] = useState<string>("");
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const cameraAnalysisInterval = useRef<NodeJS.Timeout | null>(null);
+
   useEffect(() => {
     const savedSessionId = localStorage.getItem("heygen_session_id");
     if (savedSessionId) {
@@ -577,6 +585,119 @@ export default function InteractiveAvatar({
     };
   }, []);
 
+  // カメラ分析を開始する関数
+  const startCameraAnalysis = async () => {
+    try {
+      // カメラへのアクセス許可を取得
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+      });
+
+      // ビデオ要素にストリームを設定
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+        setCameraEnabled(true);
+        setDebug("カメラ分析を開始しました");
+
+        // 定期的に画像を分析（5秒ごと）
+        cameraAnalysisInterval.current = setInterval(async () => {
+          await analyzeCurrentFrame();
+        }, 5000); // 5秒ごとに分析
+      }
+    } catch (error) {
+      console.error("カメラアクセスエラー:", error);
+      setDebug(
+        `カメラアクセスエラー: ${error instanceof Error ? error.message : "不明なエラー"}`
+      );
+    }
+  };
+
+  // 現在のフレームを分析する関数
+  const analyzeCurrentFrame = async () => {
+    if (isAnalyzing || !canvasRef.current || !videoRef.current) return;
+
+    try {
+      setIsAnalyzing(true);
+      const context = canvasRef.current.getContext("2d");
+      if (context) {
+        // ビデオフレームをキャンバスに描画
+        canvasRef.current.width = videoRef.current.videoWidth;
+        canvasRef.current.height = videoRef.current.videoHeight;
+        context.drawImage(videoRef.current, 0, 0);
+
+        // キャンバスから画像データを取得
+        const imageData = canvasRef.current.toDataURL("image/jpeg", 0.7);
+
+        // 画像分析APIを呼び出す
+        setDebug("画像を分析中...");
+        const response = await fetch("/api/analyze-image", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ image: imageData }),
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          setCameraDescription(result.description);
+          setDebug(`画像分析結果: ${result.description}`);
+
+          // 分析結果をLLMプロンプトに追加
+          if (avatar.current && result.description) {
+            await avatar.current.speak({
+              text: `カメラに映っているものについて説明します: ${result.description}。これについてどう思いますか？`,
+              taskType: TaskType.TALK,
+              taskMode: TaskMode.SYNC,
+            });
+          }
+        } else {
+          const errorData = await response.json();
+          throw new Error(errorData.error || "画像分析に失敗しました");
+        }
+      }
+    } catch (error) {
+      console.error("画像分析エラー:", error);
+      setDebug(
+        `画像分析エラー: ${error instanceof Error ? error.message : "不明なエラー"}`
+      );
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  // 手動で現在のフレームを分析するボタン用の関数
+  const analyzeCurrentFrameManually = () => {
+    analyzeCurrentFrame();
+  };
+
+  // カメラ分析を停止する関数
+  const stopCameraAnalysis = () => {
+    if (videoRef.current && videoRef.current.srcObject) {
+      // すべてのトラックを停止
+      const tracks = (videoRef.current.srcObject as MediaStream).getTracks();
+      tracks.forEach((track) => track.stop());
+      videoRef.current.srcObject = null;
+    }
+
+    // 分析インターバルをクリア
+    if (cameraAnalysisInterval.current) {
+      clearInterval(cameraAnalysisInterval.current);
+      cameraAnalysisInterval.current = null;
+    }
+
+    setCameraEnabled(false);
+    setDebug("カメラ分析を停止しました");
+  };
+
+  // コンポーネントのアンマウント時にカメラを停止
+  useEffect(() => {
+    return () => {
+      stopCameraAnalysis();
+    };
+  }, []);
+
   if (fullScreenMode) {
     return (
       <div className="w-screen h-screen overflow-hidden relative">
@@ -768,6 +889,56 @@ export default function InteractiveAvatar({
     );
   }
 
+  // UIに追加するカメラ関連の要素
+  const cameraControls = (
+    <div className="mt-4 border-t pt-4">
+      <h3 className="text-lg font-medium mb-2">カメラ分析</h3>
+      <Button
+        color={cameraEnabled ? "danger" : "success"}
+        variant="flat"
+        onClick={cameraEnabled ? stopCameraAnalysis : startCameraAnalysis}
+        className="w-full mb-2"
+      >
+        {cameraEnabled ? "カメラ分析を停止" : "カメラ分析を開始"}
+      </Button>
+
+      {cameraEnabled && (
+        <div className="relative">
+          <div className="flex justify-between mb-2">
+            <small className="text-gray-500">カメラプレビュー</small>
+            <Button
+              size="sm"
+              color="primary"
+              isLoading={isAnalyzing}
+              onClick={analyzeCurrentFrameManually}
+              disabled={isAnalyzing}
+            >
+              今すぐ分析
+            </Button>
+          </div>
+          <div
+            className="rounded-lg overflow-hidden border"
+            style={{ maxWidth: "300px", margin: "0 auto" }}
+          >
+            <video
+              ref={videoRef}
+              style={{ width: "100%", height: "auto" }}
+              muted
+              playsInline
+            />
+          </div>
+          <canvas ref={canvasRef} style={{ display: "none" }} />
+
+          {cameraDescription && (
+            <div className="mt-2 p-2 bg-gray-100 dark:bg-gray-800 rounded-lg">
+              <p className="text-sm">{cameraDescription}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className="w-full flex flex-col gap-4">
       <Card>
@@ -924,6 +1095,9 @@ export default function InteractiveAvatar({
           >
             イントロメッセージを再生
           </Button>
+
+          {/* カメラコントロールを追加 */}
+          {cameraControls}
         </CardFooter>
       </Card>
       <p className="font-mono text-right">
