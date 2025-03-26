@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@aws-sdk/client-rekognition": "^3.535.0",
     "@heygen/streaming-avatar": "^2.0.10",
     "@nextui-org/react": "^2.6.11",
     "@phosphor-icons/react": "^2.1.7",

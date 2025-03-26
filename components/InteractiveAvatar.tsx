@@ -1,666 +1,3 @@
-import type { StartAvatarResponse } from "@heygen/streaming-avatar";
-
-import StreamingAvatar, {
-  AvatarQuality,
-  StreamingEvents,
-  TaskMode,
-  TaskType,
-  VoiceEmotion,
-} from "@heygen/streaming-avatar";
-import {
-  Button,
-  Card,
-  CardBody,
-  CardFooter,
-  Divider,
-  Input,
-  Select,
-  SelectItem,
-  Spinner,
-  Chip,
-  Tabs,
-  Tab,
-  Switch,
-  Badge,
-  Tooltip,
-} from "@nextui-org/react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useMemoizedFn, usePrevious } from "ahooks";
-
-import InteractiveAvatarTextInput from "./InteractiveAvatarTextInput";
-import { useFaceRecognition, RecognizedFace } from "./useFaceRecognition";
-import FaceRecognitionUI from "./FaceRecognitionUI";
-
-import { AVATARS, STT_LANGUAGE_LIST } from "@/app/lib/constants";
-
-interface InteractiveAvatarProps {
-  fullScreenMode?: boolean;
-  setFullScreenMode?: (mode: boolean) => void;
-}
-
-export default function InteractiveAvatar({
-  fullScreenMode = false,
-  setFullScreenMode = () => {},
-}: InteractiveAvatarProps) {
-  const [isLoadingSession, setIsLoadingSession] = useState(false);
-  const [isLoadingRepeat, setIsLoadingRepeat] = useState(false);
-  const [stream, setStream] = useState<MediaStream>();
-  const [debug, setDebug] = useState<string>();
-  const [knowledgeId, setKnowledgeId] = useState<string>(
-    "d9d944d6a489422fbef04ad1493e7409"
-  );
-  const [avatarId, setAvatarId] = useState<string>(
-    //"Shawn_Therapist_public"
-    "cceeff67329f44c796048d50277375cf"
-  );
-  const [language, setLanguage] = useState<string>("ja");
-  const [isMicActive, setIsMicActive] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [sessionId, setSessionId] = useState<string>("");
-
-  const [data, setData] = useState<StartAvatarResponse>();
-  const [text, setText] = useState<string>("");
-  const mediaStream = useRef<HTMLVideoElement>(null);
-  const avatar = useRef<StreamingAvatar | null>(null);
-  const [chatMode, setChatMode] = useState("voice_mode");
-  const [isUserTalking, setIsUserTalking] = useState(false);
-
-  const [customPrompt, setCustomPrompt] = useState<string>(
-    "あなたは親切なアシスタントです。質問に対して、提供されたナレッジベースの情報を優先的に使用して回答してください。ナレッジベースに情報がない場合は、一般的な知識に基づいて回答してください。HeyGenやインタラクティブアバターについての説明は避け、ユーザーの質問に直接関連する内容だけを話してください。"
-  );
-  const [llmProvider, setLlmProvider] = useState<string>("openai");
-  const [llmModel, setLlmModel] = useState<string>("gpt-4");
-
-  const livekitUrl = process.env.LIVEKIT_URL;
-  const livekitApiKey = process.env.LIVEKIT_API_KEY;
-
-  // セッション開始状態を追跡する新しい状態変数
-  const [isStartingSession, setIsStartingSession] = useState(false);
-
-  // この1行を追加
-  const isInitialMount = useRef(true);
-
-  // カメラ関連の状態変数を追加
-  const [cameraEnabled, setCameraEnabled] = useState(false);
-  const [cameraDescription, setCameraDescription] = useState<string>("");
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-
-  // カメラ分析用の参照
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  const cameraAnalysisInterval = useRef<NodeJS.Timeout | null>(null);
-  
-  // ビデオ要素を動的に作成するためのref
-  const faceVideoContainerRef = useRef<HTMLDivElement>(null);
-  
-  // 人物に挨拶する関数
-  const greetPerson = async (person: string, isChild: boolean, gender: string) => {
-    if (!avatar.current) return;
-
-    try {
-      let greeting = "";
-
-      if (isChild) {
-        greeting = `${person}くん、こんにちは！元気かな？今日はどんな楽しいことがあった？`;
-      } else if (gender === "Male") {
-        greeting = `${person}さん、こんにちは。お手伝いできることがあればお申し付けください。`;
-      } else if (gender === "Female") {
-        greeting = `${person}さん、いらっしゃいませ。何かお力になれることはありますか？`;
-      } else {
-        greeting = `${person}さん、こんにちは。何かご質問はありますか？`;
-      }
-
-      setDebug(`${person}さんに挨拶: ${greeting}`);
-      console.log(`${person}さんに挨拶: ${greeting}`);
-
-      await avatar.current.speak({
-        text: greeting,
-        taskType: TaskType.TALK,
-        taskMode: TaskMode.SYNC,
-      });
-    } catch (error) {
-      console.error("挨拶エラー:", error);
-      setDebug(
-        `挨拶エラー: ${error instanceof Error ? error.message : "不明なエラー"}`
-      );
-    }
-  };
-
-  // 顔認識関連の統合 - useFaceRecognition フックを使用
-  const {
-    isEnabled: faceRecognitionEnabled,
-    isAnalyzing: isFaceAnalyzing,
-    isGreeting,
-    recognizedFaces,
-    currentFace,
-    errorMessage: faceRecognitionError,
-    startRecognition,
-    stopRecognition,
-    analyzeCurrentFrame: analyzeFace,
-    resetRecognizedFaces
-  } = useFaceRecognition(
-    'face-recognition-video',
-    'face-recognition-canvas',
-    greetPerson,
-    message => setDebug(message),
-    {
-      greetingCooldown: 60000, // 同じ人への挨拶のクールダウン（ミリ秒）
-      recognitionInterval: 5000, // 顔認識の実行間隔（ミリ秒）
-      confidenceThreshold: 70 // 顔認識の確信度の閾値（％）
-    }
-  );
-
-  useEffect(() => {
-    const savedSessionId = localStorage.getItem("heygen_session_id");
-    if (savedSessionId) {
-      cleanupPreviousSession(savedSessionId);
-    }
-
-    const handleBeforeUnload = async () => {
-      if (sessionId) {
-        try {
-          localStorage.setItem("heygen_session_id", sessionId);
-
-          if (avatar.current) {
-            await avatar.current.stopAvatar();
-          } else {
-            await fetch("/api/close-session", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ sessionId }),
-            });
-          }
-        } catch (error) {
-          console.error("セッション終了中にエラーが発生しました。:", error);
-        }
-      }
-    };
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-
-    return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-      if (avatar.current && sessionId) {
-        avatar.current.stopAvatar().catch(console.error);
-      }
-      // セッション終了時に顔認識も停止
-      stopRecognition();
-    };
-  }, [sessionId, stopRecognition]);
-
-  // セッションクリーンアップの状態を追跡
-  const [isCleaningUp, setIsCleaningUp] = useState(false);
-
-  async function cleanupPreviousSession(previousSessionId: string) {
-    // 既にクリーンアップ中なら実行しない
-    if (isCleaningUp) {
-      console.log("既にクリーンアップ中です。スキップします。");
-      return;
-    }
-
-    try {
-      setIsCleaningUp(true);
-      console.log("前回のセッションをクリーンアップ中:", previousSessionId);
-
-      await fetch("/api/close-session", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ sessionId: previousSessionId }),
-      });
-
-      localStorage.removeItem("heygen_session_id");
-
-      console.log("前回のセッションをクリーンアップしました");
-    } catch (error) {
-      console.error(
-        "前回のセッションのクリーンアップ中にエラーが発生しました:",
-        error
-      );
-    } finally {
-      setIsCleaningUp(false);
-    }
-  }
-
-  async function fetchAccessToken() {
-    try {
-      setDebug("アクセストークンをリクエスト中...");
-      const response = await fetch("/api/get-access-token", {
-        method: "POST",
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        throw new Error(
-          `アクセストークン取得エラー: ${response.status} ${response.statusText}${
-            errorData
-              ? ` - ${errorData.details || errorData.error || JSON.stringify(errorData)}`
-              : ""
-          }`
-        );
-      }
-
-      const token = await response.text();
-      console.log("Access Token:", token);
-
-      if (!token || token.trim() === "") {
-        throw new Error("空のアクセストークンが返されました");
-      }
-
-      setDebug("アクセストークンを取得しました");
-      return token;
-    } catch (error) {
-      console.error("Error fetching access token:", error);
-      setDebug(
-        `アクセストークン取得エラー: ${error instanceof Error ? error.message : "不明なエラー"}`
-      );
-      throw error; // エラーを再スローして呼び出し元で処理できるようにする
-    }
-  }
-
-  async function startSession() {
-    // 既にセッション開始中なら何もしない
-    if (isStartingSession || isLoadingSession) return;
-
-    setIsStartingSession(true);
-    setIsLoadingSession(true);
-    setDebug("セッション開始中...");
-
-    try {
-      // AudioContextを初期化（ユーザージェスチャーの一部として実行される）
-      initAudioContext();
-      setDebug("AudioContext初期化完了");
-
-      // 既存のセッションがある場合はクリーンアップ
-      if (sessionId) {
-        setDebug("前回のセッションをクリーンアップ中...");
-        await cleanupPreviousSession(sessionId);
-      }
-
-      // 保存されているセッションIDがある場合はクリーンアップ
-      const savedSessionId = localStorage.getItem("heygen_session_id");
-      if (savedSessionId && savedSessionId !== sessionId) {
-        setDebug("保存されているセッションをクリーンアップ中...");
-        await cleanupPreviousSession(savedSessionId);
-      }
-
-      setDebug("アクセストークン取得中...");
-      const newToken = await fetchAccessToken();
-
-      if (!newToken) {
-        throw new Error("アクセストークンの取得に失敗しました");
-      }
-
-      setDebug("StreamingAvatarを初期化中...");
-      
-      // 既存のインスタンスをクリーンアップ
-      if (avatar.current) {
-        try {
-          await avatar.current.stopAvatar();
-        } catch (e) {
-          console.log("既存のアバターインスタンスのクリーンアップ中にエラーが発生しました:", e);
-        }
-        avatar.current = null;
-      }
-      
-      // 新しいインスタンスを作成
-      avatar.current = new StreamingAvatar({
-        token: newToken,
-      });
-
-      // イベントリスナーの設定
-      setDebug("イベントリスナーを設定中...");
-
-      // エラーイベントのリスナーを追加
-      const handleWebSocketError = (event: Event) => {
-        console.error("WebSocketエラー:", event);
-        setDebug(`WebSocketエラー: 接続に失敗しました`);
-        
-        // エラーが発生した場合はセッションをクリーンアップ
-        if (avatar.current) {
-          try {
-            avatar.current.stopAvatar().catch(e => console.error("停止中のエラー:", e));
-          } catch (e) {
-            console.error("アバターの停止中にエラーが発生しました:", e);
-          }
-        }
-        
-        // セッション状態をリセット
-        setIsStartingSession(false);
-        setIsLoadingSession(false);
-      };
-      
-      // Windowレベルのエラーリスナー
-      window.addEventListener("error", handleWebSocketError);
-      
-      // 必要なイベントリスナーを設定
-      avatar.current.on(StreamingEvents.AVATAR_START_TALKING, (e) => {
-        console.log("Avatar started talking", e);
-        setDebug("アバターが話し始めました");
-      });
-
-      avatar.current.on(StreamingEvents.AVATAR_STOP_TALKING, (e) => {
-        console.log("Avatar stopped talking", e);
-        setDebug("アバターが話し終わりました");
-      });
-
-      avatar.current.on(StreamingEvents.STREAM_DISCONNECTED, () => {
-        console.log("Stream disconnected");
-        setDebug("ストリームが切断されました");
-        endSession();
-      });
-
-      avatar.current.on(StreamingEvents.STREAM_READY, (event) => {
-        console.log("Stream ready:", event.detail);
-        setDebug("ストリームの準備ができました");
-        setStream(event.detail);
-      });
-
-      avatar.current.on(StreamingEvents.USER_START, (event) => {
-        console.log("User started talking:", event);
-        setDebug("ユーザーが話し始めました");
-        setIsUserTalking(true);
-      });
-
-      avatar.current.on(StreamingEvents.USER_STOP, (event) => {
-        console.log("User stopped talking:", event);
-        setDebug("ユーザーが話し終わりました");
-        setIsUserTalking(false);
-      });
-
-      // エラーイベントのリスナーを追加
-      // StreamingEvents.ERRORは存在しないため、一般的なエラーハンドリングを強化
-      window.addEventListener("error", (event) => {
-        console.error("Window error:", event);
-        setDebug(`ウィンドウエラー: ${event.message}`);
-      });
-
-      setDebug("アバターセッション作成中...");
-      const res = await avatar.current.createStartAvatar({
-        quality: AvatarQuality.Medium,
-        avatarName: avatarId,
-        knowledgeId: knowledgeId,
-        voice: {
-          rate: 1.2,
-          emotion: VoiceEmotion.FRIENDLY,
-        },
-        language: language,
-        disableIdleTimeout: true,
-        enableIntroMessage: true, // イントロメッセージを有効化
-        llm: {
-          provider: llmProvider,
-          model: llmModel,
-          systemPrompt: customPrompt,
-        },
-      } as any);
-
-      console.log("Avatar session response:", res);
-
-      // session_idプロパティを確認（HeyGen APIはスネークケースを使用）
-      if (res && (res.sessionId || res.session_id)) {
-        const sessionIdValue = res.sessionId || res.session_id;
-        setSessionId(sessionIdValue);
-        localStorage.setItem("heygen_session_id", sessionIdValue);
-        setDebug(`セッションID: ${sessionIdValue}`);
-      } else {
-        console.error("セッションIDが取得できませんでした。レスポンス:", res);
-        throw new Error("セッションIDが取得できませんでした");
-      }
-
-      setData(res);
-
-      setDebug("音声チャット開始中...");
-      await avatar.current.startVoiceChat({
-        useSilencePrompt: false,
-      });
-
-      // セッション開始後、少し待ってからイントロメッセージを再生
-      setTimeout(() => {
-        playIntroMessage();
-      }, 2000);
-
-      // マイクの権限を確認
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-        });
-        stream.getTracks().forEach((track) => track.stop()); // 確認後にストリームを停止
-        setDebug("マイクの権限が許可されています");
-      } catch (micError) {
-        console.error("マイクの権限エラー:", micError);
-        setDebug(
-          `マイクの権限が許可されていません: ${micError instanceof Error ? micError.message : "不明なエラー"}`
-        );
-      }
-
-      setChatMode("voice_mode");
-      setDebug("セッション開始完了");
-    } catch (error) {
-      console.error("Error starting avatar session:", error);
-      setDebug(
-        `セッション開始エラー: ${error instanceof Error ? error.message : "不明なエラー"}`
-      );
-
-      if (fullScreenMode) {
-        setStream(undefined);
-        setFullScreenMode(false);
-      }
-
-      // エラー発生時にアバターインスタンスをクリーンアップ
-      if (avatar.current) {
-        try {
-          await avatar.current.stopAvatar();
-        } catch (cleanupError) {
-          console.error("Cleanup error:", cleanupError);
-        }
-        avatar.current = null;
-      }
-    } finally {
-      setIsLoadingSession(false);
-      setIsStartingSession(false);
-    }
-  }
-
-  // イントロメッセージを手動で再生する関数
-  const playIntroMessage = async () => {
-    if (!avatar.current) {
-      setDebug("アバターが初期化されていません");
-      return;
-    }
-
-    try {
-      setDebug("イントロメッセージを再生中...");
-      // イントロメッセージを再生するためのAPIコール
-      await avatar.current.speak({
-        text: "こんにちは！何かお手伝いできることはありますか？",
-        taskType: TaskType.TALK, // INTROではなくTALKを使用
-        taskMode: TaskMode.SYNC,
-      });
-    } catch (error) {
-      console.error("イントロメッセージ再生エラー:", error);
-      setDebug(
-        `イントロメッセージ再生エラー: ${error instanceof Error ? error.message : "不明なエラー"}`
-      );
-    }
-  };
-
-  async function handleSpeak() {
-    setIsLoadingRepeat(true);
-    if (!avatar.current) {
-      setDebug("Avatar API not initialized");
-
-      return;
-    }
-    await avatar.current
-      .speak({ text: text, taskType: TaskType.REPEAT, taskMode: TaskMode.SYNC })
-      .catch((e) => {
-        setDebug(e.message);
-      });
-    setIsLoadingRepeat(false);
-  }
-
-  async function handleInterrupt() {
-    if (!avatar.current) {
-      setDebug("Avatar API not initialized");
-
-      return;
-    }
-    await avatar.current.interrupt().catch((e) => {
-      setDebug(e.message);
-    });
-  }
-
-  async function endSession() {
-    setDebug("セッションを終了しています...");
-    
-    try {
-      // エラーが発生しても処理を続行するため、各ステップを個別にtry-catchで囲む
-      
-      // 1. 顔認識を停止
-      try {
-        stopRecognition();
-      } catch (error) {
-        console.error("顔認識停止中にエラーが発生しました:", error);
-      }
-      
-      // 2. アバターを停止
-      if (avatar.current) {
-        try {
-          await avatar.current.stopAvatar();
-        } catch (error) {
-          console.error("アバター停止中にエラーが発生しました:", error);
-        } finally {
-          // エラーが発生してもリソースを解放する
-          avatar.current = null;
-        }
-      }
-      
-      // 3. セッションIDをローカルストレージから削除
-      if (sessionId) {
-        try {
-          localStorage.removeItem("heygen_session_id");
-        } catch (error) {
-          console.error("ローカルストレージ操作中にエラーが発生しました:", error);
-        } finally {
-          setSessionId("");
-        }
-      }
-      
-      // 4. ストリームとデータを初期化
-      setStream(undefined);
-      setData(undefined);
-      
-      setDebug("セッションが正常に終了しました");
-    } catch (error) {
-      console.error("セッション終了中に予期しないエラーが発生しました:", error);
-      setDebug(`セッション終了エラー: ${error instanceof Error ? error.message : "不明なエラー"}`);
-    } finally {
-      // 状態をリセット
-      setIsStartingSession(false);
-      setIsLoadingSession(false);
-    }
-  }
-
-  const toggleMicrophone = async () => {
-    try {
-      if (isMicActive) {
-        setDebug("マイクをオフにしています...");
-        await avatar.current?.stopListening();
-        setIsMicActive(false);
-        setDebug("マイクがオフになりました");
-      } else {
-        setDebug("マイクをオンにしています...");
-        // マイクの権限を確認
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            audio: true,
-          });
-          stream.getTracks().forEach((track) => track.stop()); // 確認後にストリームを停止
-        } catch (micError) {
-          console.error("マイクの権限エラー:", micError);
-          setDebug(
-            `マイクの権限が許可されていません: ${micError instanceof Error ? micError.message : "不明なエラー"}`
-          );
-          return; // 権限がない場合は処理を中断
-        }
-
-        await avatar.current?.startListening();
-        setIsMicActive(true);
-        setDebug("マイクがオンになりました - 話しかけてください");
-      }
-    } catch (error) {
-      console.error("マイク切り替えエラー:", error);
-      setDebug(
-        `マイク切り替えエラー: ${error instanceof Error ? error.message : "不明なエラー"}`
-      );
-    }
-  };
-
-  const toggleSettings = () => {
-    setShowSettings(!showSettings);
-  };
-
-  async function saveSettings() {
-    try {
-      setIsLoadingSession(true);
-
-      if (avatar.current) {
-        console.log("終了中のセッション:", sessionId);
-        await avatar.current.stopAvatar();
-
-        if (sessionId) {
-          try {
-            await fetch("/api/close-session", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ sessionId }),
-            });
-            console.log("セッションを正常に閉じました:", sessionId);
-          } catch (closeError) {
-            console.error("セッション終了APIエラー:", closeError);
-          }
-
-          localStorage.removeItem("heygen_session_id");
-          setSessionId("");
-        }
-
-        avatar.current = null;
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-
-      setShowSettings(false);
-      setStream(undefined);
-
-      startSession();
-    } catch (error) {
-      console.error("設定の保存中にエラーが発生しました:", error);
-      setDebug(
-        `設定の保存中にエラー: ${error instanceof Error ? error.message : "不明なエラー"}`
-      );
-    } finally {
-      setIsLoadingSession(false);
-    }
-  }
-
-  const handleChangeChatMode = useMemoizedFn(async (v) => {
-    if (v === chatMode) {
-      return;
-    }
-    if (v === "text_mode") {
-      avatar.current?.closeVoiceChat();
-    } else {
-      await avatar.current?.startVoiceChat();
-    }
-    setChatMode(v);
-  });
-
   const previousText = usePrevious(text);
   useEffect(() => {
     if (!previousText && text) {
@@ -707,7 +44,7 @@ export default function InteractiveAvatar({
           });
         }
         setDebug("AudioContextが初期化されました");
-        
+
         // 無音の短い音を再生（ブラウザのオーディオエンジンを起動するため）
         try {
           const oscillator = audioCtx.createOscillator();
@@ -746,12 +83,12 @@ export default function InteractiveAvatar({
       document.removeEventListener("touchstart", handleUserInteraction);
       document.removeEventListener("keydown", handleUserInteraction);
     };
-  }, []);
+  }, [initAudioContext]);
 
   // 顔認識の切り替え関数
   const toggleFaceRecognition = () => {
     console.log("顔認識ボタンがクリックされました");
-    
+
     if (faceRecognitionEnabled) {
       console.log("顔認識を停止します");
       stopRecognition();
@@ -998,174 +335,355 @@ export default function InteractiveAvatar({
                 >
                   {AVATARS.map((avatar) => (
                     <SelectItem
-                      key={avatar.avatar_id}
-                      textValue={avatar.avatar_id}
+                      key={avatar.id}
+                      value={avatar.id}
+                      textValue={avatar.name}
                     >
                       {avatar.name}
                     </SelectItem>
                   ))}
                 </Select>
+                <p className="text-sm font-medium leading-none">
+                  System prompt
+                </p>
+                <Input
+                  placeholder="Enter a custom system prompt"
+                  value={customPrompt}
+                  onChange={(e) => setCustomPrompt(e.target.value)}
+                />
+
+                <p className="text-sm font-medium leading-none">LLM provider</p>
                 <Select
-                  label="Select language"
+                  placeholder="Select LLM provider"
+                  aria-label="LLM provider selection"
+                  size="md"
+                  value={llmProvider}
+                  onChange={(e) => {
+                    setLlmProvider(e.target.value);
+                  }}
+                >
+                  <SelectItem key="openai" value="openai" textValue="OpenAI">
+                    OpenAI
+                  </SelectItem>
+                  <SelectItem key="azure" value="azure" textValue="Azure">
+                    Azure
+                  </SelectItem>
+                  <SelectItem
+                    key="google"
+                    value="google"
+                    textValue="Google Cloud PaLM"
+                  >
+                    Google Cloud PaLM
+                  </SelectItem>
+                </Select>
+
+                <p className="text-sm font-medium leading-none">LLM model</p>
+                <Select
+                  placeholder="Select LLM model"
+                  aria-label="LLM model selection"
+                  size="md"
+                  value={llmModel}
+                  onChange={(e) => {
+                    setLlmModel(e.target.value);
+                  }}
+                >
+                  <SelectItem key="gpt-4" value="gpt-4" textValue="GPT-4">
+                    GPT-4
+                  </SelectItem>
+                  <SelectItem
+                    key="gpt-3.5-turbo"
+                    value="gpt-3.5-turbo"
+                    textValue="GPT-3.5 Turbo"
+                  >
+                    GPT-3.5 Turbo
+                  </SelectItem>
+                  <SelectItem
+                    key="text-bison@001"
+                    value="text-bison@001"
+                    textValue="PaLM 2 (Text Bison)"
+                  >
+                    PaLM 2 (Text Bison)
+                  </SelectItem>
+                </Select>
+
+                <p className="text-sm font-medium leading-none">Language</p>
+                <Select
                   placeholder="Select language"
                   aria-label="Language selection"
-                  className="max-w-xs"
-                  selectedKeys={[language]}
+                  size="md"
+                  value={language}
                   onChange={(e) => {
                     setLanguage(e.target.value);
                   }}
                 >
                   {STT_LANGUAGE_LIST.map((lang) => (
-                    <SelectItem key={lang.key}>{lang.label}</SelectItem>
+                    <SelectItem
+                      key={lang.code}
+                      value={lang.code}
+                      textValue={lang.name}
+                    >
+                      {lang.name}
+                    </SelectItem>
                   ))}
                 </Select>
+
+                {/* 顔認識機能を有効化するボタン */}
+                <p className="text-sm font-medium leading-none mt-3 flex items-center">
+                  <span>顔認識機能</span>
+                  <Badge 
+                    className="ml-2" 
+                    color="primary" 
+                    variant="flat"
+                    size="sm"
+                  >
+                    新機能
+                  </Badge>
+                </p>
+                <Button
+                  color={faceRecognitionEnabled ? "danger" : "success"}
+                  variant="flat"
+                  onClick={toggleFaceRecognition}
+                  className="w-full mt-1"
+                  startContent={
+                    <svg 
+                      xmlns="http://www.w3.org/2000/svg" 
+                      width="16" 
+                      height="16" 
+                      viewBox="0 0 24 24" 
+                      fill="none" 
+                      stroke="currentColor" 
+                      strokeWidth="2" 
+                      strokeLinecap="round" 
+                      strokeLinejoin="round"
+                    >
+                      <circle cx="12" cy="8" r="5" />
+                      <path d="M20 21a8 8 0 1 0-16 0" />
+                    </svg>
+                  }
+                >
+                  {faceRecognitionEnabled ? "顔認識を停止" : "顔認識を開始"}
+                </Button>
+                <Tooltip 
+                  content="カメラを使って、映っている人の顔を認識し名前で挨拶します。public/reference-faces/ に「名前.jpg」形式の画像を保存しておく必要があります。"
+                  placement="bottom"
+                >
+                  <div className="text-xs text-gray-500 text-center cursor-help mt-1">
+                    顔認識の詳細を確認 ℹ️
+                  </div>
+                </Tooltip>
               </div>
+
               <Button
-                className="bg-gradient-to-tr from-indigo-500 to-indigo-300 w-full text-white"
-                size="md"
-                variant="shadow"
+                className="bg-gradient-to-tr from-indigo-500 to-indigo-300 text-white rounded-lg"
+                size="lg"
+                isLoading={isLoadingSession}
                 onPress={startSession}
               >
-                Start session
+                Start Session
               </Button>
+
+              {debug && <div className="text-xs max-w-full">{debug}</div>}
             </div>
           ) : (
-            <Spinner color="default" size="lg" />
+            <div className="h-[500px] w-[900px] justify-center items-center flex">
+              <Spinner color="primary" size="lg" label="Loading..." />
+            </div>
           )}
         </CardBody>
-        <Divider />
-        <CardFooter className="flex flex-col gap-3 relative">
-          <Tabs
-            aria-label="Options"
-            selectedKey={chatMode}
-            onSelectionChange={(v) => {
-              handleChangeChatMode(v);
-            }}
-          >
-            <Tab key="text_mode" title="Text mode" />
-            <Tab key="voice_mode" title="Voice mode" />
-          </Tabs>
-          {chatMode === "text_mode" ? (
-            <div className="w-full flex relative">
-              <InteractiveAvatarTextInput
-                disabled={!stream}
-                input={text}
-                label="Chat"
-                loading={isLoadingRepeat}
-                placeholder="Type something for the avatar to respond"
-                setInput={setText}
-                onSubmit={handleSpeak}
-              />
-              {text && (
-                <Chip className="absolute right-16 top-3">Listening</Chip>
-              )}
-            </div>
-          ) : (
-            <div className="w-full text-center">
-              <Button
-                isDisabled={!isUserTalking}
-                className="bg-gradient-to-tr from-indigo-500 to-indigo-300 text-white"
-                size="md"
-                variant="shadow"
-              >
-                {isUserTalking ? "Listening" : "Voice chat"}
-              </Button>
-            </div>
-          )}
-          <Button
-            color="primary"
-            variant="flat"
-            onPress={toggleMicrophone}
-            isDisabled={!sessionId || isLoadingSession}
-            className="w-full"
-          >
-            {isMicActive ? "マイクをオフにする" : "マイクをオンにする"}
-          </Button>
-          <div className="flex gap-2 justify-between">
-            <Button
-              color="primary"
-              variant="ghost"
-              size="sm"
-              onPress={toggleSettings}
-              isDisabled={!sessionId || isLoadingSession}
-            >
-              {showSettings ? "設定を閉じる" : "設定を表示"}
-            </Button>
-            {debug && (
-              <div className="text-xs text-gray-500 flex items-center gap-3">
-                <Spinner size="sm" className={isLoadingSession ? "" : "hidden"} />
-                {debug}
+        {stream && (
+          <CardFooter className="flex-col gap-2">
+            <Divider />
+            <div className="flex flex-col md:flex-row w-full items-center">
+              <div className="w-full md:w-[300px] h-fit flex gap-3 px-2">
+                <Button
+                  onPress={handleSpeak}
+                  isLoading={isLoadingRepeat}
+                  className="flex-grow"
+                  isDisabled={!text || !stream}
+                  color="primary"
+                >
+                  Speak this
+                </Button>
+                <Button
+                  isIconOnly
+                  onPress={toggleMicrophone}
+                  className={isMicActive ? "text-red-500" : ""}
+                  isDisabled={!stream}
+                >
+                  <svg
+                    fill="none"
+                    height="24"
+                    strokeWidth="1.5"
+                    viewBox="0 0 24 24"
+                    width="24"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      d="M12 18.75a6 6 0 0 0 6-6V6.75a6 6 0 1 0-12 0v6a6 6 0 0 0 6 6Z"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    <path
+                      d="M5.636 18.75H18.5"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    <path
+                      d="M12 18.75v4.5"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </Button>
+                <Button
+                  onPress={toggleSettings}
+                  isIconOnly
+                  className={isMicActive ? "text-red-500" : ""}
+                  isDisabled={!stream}
+                >
+                  <svg
+                    fill="none"
+                    height="24"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                    width="24"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path d="M20 7l-8-4-8 4" />
+                    <path d="M4 7v5a8 8 0 0 0 16 0V7" />
+                    <path d="M7 15l5 5 5-5" />
+                  </svg>
+                </Button>
               </div>
-            )}
-          </div>
-          {showSettings && (
-            <div className="w-full flex flex-col gap-2">
+
+              <Divider
+                orientation={
+                  typeof window !== "undefined" && window.innerWidth < 768
+                    ? "horizontal"
+                    : "vertical"
+                }
+                className="mx-3 h-14 hidden md:block"
+              />
+
+              <div className="flex-grow">
+                <InteractiveAvatarTextInput
+                  isDisabled={!stream || isLoadingRepeat}
+                  value={text}
+                  onChange={setText}
+                />
+              </div>
+            </div>
+          </CardFooter>
+        )}
+      </Card>
+
+      {/* 拡張モードでの詳細設定 */}
+      {showSettings && (
+        <Card className="w-full flex flex-col gap-4">
+          <CardBody className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <p className="text-sm font-medium leading-none">Knowledge ID</p>
               <Input
-                label="Custom System Prompt"
+                placeholder="Enter a custom knowledge ID"
+                value={knowledgeId}
+                onChange={(e) => setKnowledgeId(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <p className="text-sm font-medium leading-none">Avatar ID</p>
+              <Input
+                placeholder="Enter a custom avatar ID"
+                value={avatarId}
+                onChange={(e) => setAvatarId(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <p className="text-sm font-medium leading-none">System Prompt</p>
+              <Input
                 placeholder="Enter a custom system prompt"
                 value={customPrompt}
                 onChange={(e) => setCustomPrompt(e.target.value)}
-                isDisabled={isLoadingSession}
-                size="sm"
               />
-              <div className="flex gap-2">
-                <Select
-                  label="LLM Provider"
-                  placeholder="Select provider"
-                  aria-label="LLM Provider selection"
-                  className="max-w-xs"
-                  selectedKeys={[llmProvider]}
-                  onChange={(e) => {
-                    setLlmProvider(e.target.value);
-                  }}
-                  size="sm"
-                  isDisabled={isLoadingSession}
-                >
-                  <SelectItem key="openai">OpenAI</SelectItem>
-                  <SelectItem key="anthropic">Anthropic</SelectItem>
-                </Select>
-                <Select
-                  label="LLM Model"
-                  placeholder="Select model"
-                  aria-label="LLM Model selection"
-                  className="max-w-xs"
-                  selectedKeys={[llmModel]}
-                  onChange={(e) => {
-                    setLlmModel(e.target.value);
-                  }}
-                  size="sm"
-                  isDisabled={isLoadingSession}
-                >
-                  <SelectItem key="gpt-4">GPT-4</SelectItem>
-                  <SelectItem key="gpt-4-turbo">GPT-4 Turbo</SelectItem>
-                  <SelectItem key="gpt-3.5-turbo">GPT-3.5 Turbo</SelectItem>
-                  <SelectItem key="claude-3-opus">Claude 3 Opus</SelectItem>
-                  <SelectItem key="claude-3-sonnet">Claude 3 Sonnet</SelectItem>
-                </Select>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  color="primary"
-                  onPress={saveSettings}
-                  isDisabled={!sessionId || isLoadingSession}
-                  isLoading={isLoadingSession}
-                  className="mt-2"
-                >
-                  設定を保存して再起動
-                </Button>
-              </div>
             </div>
-          )}
-        </CardFooter>
-        <Divider />
-        <CardFooter className="flex flex-col gap-3 w-full">
-          {/* 顔認識UI要素を追加 */}
-          {faceRecognitionUI}
+            <div className="flex flex-col gap-2">
+              <p className="text-sm font-medium leading-none">LLM Provider</p>
+              <Select
+                placeholder="Select LLM provider"
+                aria-label="LLM provider selection"
+                size="md"
+                value={llmProvider}
+                onChange={(e) => {
+                  setLlmProvider(e.target.value);
+                }}
+              >
+                <SelectItem key="openai" value="openai" textValue="OpenAI">
+                  OpenAI
+                </SelectItem>
+                <SelectItem key="azure" value="azure" textValue="Azure">
+                  Azure
+                </SelectItem>
+                <SelectItem
+                  key="google"
+                  value="google"
+                  textValue="Google Cloud PaLM"
+                >
+                  Google Cloud PaLM
+                </SelectItem>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-2">
+              <p className="text-sm font-medium leading-none">LLM Model</p>
+              <Select
+                placeholder="Select LLM model"
+                aria-label="LLM model selection"
+                size="md"
+                value={llmModel}
+                onChange={(e) => {
+                  setLlmModel(e.target.value);
+                }}
+              >
+                <SelectItem key="gpt-4" value="gpt-4" textValue="GPT-4">
+                  GPT-4
+                </SelectItem>
+                <SelectItem
+                  key="gpt-3.5-turbo"
+                  value="gpt-3.5-turbo"
+                  textValue="GPT-3.5 Turbo"
+                >
+                  GPT-3.5 Turbo
+                </SelectItem>
+                <SelectItem
+                  key="text-bison@001"
+                  value="text-bison@001"
+                  textValue="PaLM 2 (Text Bison)"
+                >
+                  PaLM 2 (Text Bison)
+                </SelectItem>
+              </Select>
+            </div>
+            <Button
+              className="bg-gradient-to-tr from-indigo-500 to-indigo-300 text-white rounded-lg"
+              size="lg"
+              isLoading={isLoadingSession}
+              onPress={saveSettings}
+            >
+              Save Settings & Restart
+            </Button>
+          </CardBody>
+        </Card>
+      )}
 
-          {/* カメラ分析UI要素を追加 */}
-          {cameraControls}
-        </CardFooter>
-      </Card>
+      {/* 顔認識UIの表示 */}
+      {faceRecognitionUI}
+
+      {/* カメラ分析コントロールの表示（必要に応じて） */}
+      {false && cameraControls /* 必要な場合にtrueに変更 */}
     </div>
   );
 }

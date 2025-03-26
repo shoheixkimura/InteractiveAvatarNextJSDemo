@@ -8,6 +8,7 @@ This is a demonstration project showcasing interactive 3D avatars in a Next.js a
 - Real-time avatar animations and expressions
 - Speech recognition for voice interaction
 - Chat interface for text-based interaction
+- Face recognition with AWS Rekognition for personalized greetings
 - Responsive design for desktop and mobile devices
 
 ## Technologies Used
@@ -16,9 +17,11 @@ This is a demonstration project showcasing interactive 3D avatars in a Next.js a
 - TypeScript
 - Three.js
 - React Three Fiber & Drei
+- AWS Rekognition for face recognition
 - Tailwind CSS
-- Zustand for state management
+- NextUI for UI components
 - Web Speech API
+- HeyGen Streaming Avatar API
 
 ## Getting Started
 
@@ -69,8 +72,28 @@ src/
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
+## Face Recognition Setup
+
+To use the face recognition feature:
+
+1. Create an AWS account and set up AWS Rekognition
+2. Add the following environment variables to your `.env.local` file:
+   ```
+   AWS_ACCESS_KEY_ID=your_access_key
+   AWS_SECRET_ACCESS_KEY=your_secret_key
+   AWS_REGION=your_region (e.g., us-east-1)
+   ```
+3. Add reference face images to the `public/reference-faces/` directory
+   - Name each file with the person's name (e.g., `JOHN.jpg`, `MARY.jpg`)
+   - Use clear, front-facing portraits for best recognition results
+4. Configure recognition settings in `components/useFaceRecognition.ts` if needed
+
+The avatar will greet recognized people by name and adapt its greeting based on time of day, gender, and age.
+
 ## Acknowledgments
 
 - [Three.js](https://threejs.org/)
 - [React Three Fiber](https://github.com/pmndrs/react-three-fiber)
 - [Next.js](https://nextjs.org/)
+- [AWS Rekognition](https://aws.amazon.com/rekognition/)
+- [HeyGen](https://www.heygen.com/)

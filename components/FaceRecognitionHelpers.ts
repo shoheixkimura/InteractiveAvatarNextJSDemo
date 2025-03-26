@@ -28,6 +28,12 @@ export const setupVideoStream = async (
       throw new Error("メディアストリームが提供されていません");
     }
 
+    console.log("ビデオストリーム設定開始:", {
+      videoElementExists: !!videoElement,
+      streamExists: !!stream,
+      streamTracks: stream.getTracks().map(t => t.kind).join(', ')
+    });
+
     // ビデオ要素にストリームを設定
     videoElement.srcObject = stream;
     videoElement.muted = true; // 音声フィードバックを防止
@@ -35,34 +41,47 @@ export const setupVideoStream = async (
 
     // loadedmetadata イベントを待ってから再生開始
     const playPromise = new Promise<void>((resolve, reject) => {
+      // タイムアウト処理（10秒）
       const timeoutId = setTimeout(() => {
-        reject(new Error("ビデオ読み込みタイムアウト"));
-      }, 10000); // 10秒タイムアウト
-      
+        console.error("ビデオ読み込みタイムアウト");
+        reject(new Error("ビデオ読み込みタイムアウト - ブラウザの権限設定を確認してください"));
+      }, 10000);
+
+      // メタデータロード完了時の処理
       videoElement.onloadedmetadata = async () => {
         clearTimeout(timeoutId);
         try {
+          console.log("ビデオメタデータが読み込まれました:", {
+            videoWidth: videoElement.videoWidth,
+            videoHeight: videoElement.videoHeight
+          });
+          
+          // ビデオの再生を開始
           await videoElement.play();
+          console.log("ビデオ再生を開始しました");
           resolve();
         } catch (playError) {
-          reject(playError);
+          console.error("ビデオ再生開始エラー:", playError);
+          reject(new Error(`ビデオの再生に失敗しました: ${playError instanceof Error ? playError.message : "不明なエラー"}`));
         }
       };
-      
+
+      // エラーハンドリング
       videoElement.onerror = (event) => {
         clearTimeout(timeoutId);
+        console.error("ビデオ要素エラー:", videoElement.error);
         reject(new Error(`ビデオエラー: ${videoElement.error?.message || "不明なエラー"}`));
       };
     });
-    
+
     await playPromise;
-    console.log("ビデオストリームの再生を開始しました");
+    console.log("ビデオストリームの設定が完了しました");
 
     // 成功コールバックを呼び出す
     onSuccess();
   } catch (error) {
     console.error("ビデオストリーム設定エラー:", error);
-    onError(new Error(`ビデオストリーム設定エラー: ${error instanceof Error ? error.message : "不明なエラー"}`));
+    onError(error instanceof Error ? error : new Error(`ビデオストリーム設定エラー: ${String(error)}`));
   }
 };
 
@@ -84,62 +103,98 @@ export const captureAndAnalyzeFace = async (
 
     // ビデオがready状態かチェック
     if (videoElement.readyState < 2) { // HAVE_CURRENT_DATA
-      throw new Error("ビデオはまだキャプチャの準備ができていません");
+      console.warn("ビデオはまだキャプチャの準備ができていません。状態:", videoElement.readyState);
+      throw new Error("ビデオはまだキャプチャの準備ができていません。少し待ってから再試行してください。");
     }
 
     // ビデオのサイズが有効かチェック
     if (videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
-      throw new Error("ビデオのサイズが無効です");
+      console.error("ビデオサイズが無効です:", {
+        width: videoElement.videoWidth,
+        height: videoElement.videoHeight
+      });
+      throw new Error("ビデオのサイズが無効です。カメラへのアクセス権限を確認してください。");
     }
 
-    console.log("顔分析のための画像をキャプチャします");
+    console.log("顔分析のための画像をキャプチャします", {
+      videoWidth: videoElement.videoWidth,
+      videoHeight: videoElement.videoHeight
+    });
 
-    const context = canvasElement.getContext("2d", { willReadFrequently: true });
+    // キャンバスコンテキストの取得（パフォーマンス最適化を設定）
+    const context = canvasElement.getContext("2d", { 
+      willReadFrequently: true,
+      alpha: false  // 透明度が不要なので無効化してパフォーマンス向上
+    });
+    
     if (!context) {
       throw new Error("Canvasコンテキストを取得できませんでした");
     }
 
-    // ビデオフレームをキャンバスに描画
+    // キャンバスのサイズをビデオフレームに合わせる
     canvasElement.width = videoElement.videoWidth;
     canvasElement.height = videoElement.videoHeight;
-    context.drawImage(videoElement, 0, 0);
-    console.log(`ビデオフレームをキャンバスに描画しました (${canvasElement.width}x${canvasElement.height})`);
-
-    // キャンバスから画像データを取得 (圧縮率を調整して品質と容量のバランスを取る)
-    const imageData = canvasElement.toDataURL("image/jpeg", 0.8);
     
-    // データサイズの確認と調整
-    if (imageData.length > 1000000) { // 1MB以上の場合は圧縮率を下げる
-      console.log("画像サイズが大きいため、圧縮率を下げて再取得します");
-      const reducedImageData = canvasElement.toDataURL("image/jpeg", 0.6);
-      console.log("画像データを取得しました（長さ:", reducedImageData.length, "）");
-      
-      // 顔認識APIを呼び出す
-      return await sendImageToAPI(reducedImageData);
+    // ビデオフレームをキャンバスに描画
+    try {
+      context.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
+      console.log(`ビデオフレームをキャンバスに描画しました (${canvasElement.width}x${canvasElement.height})`);
+    } catch (drawError) {
+      console.error("キャンバス描画エラー:", drawError);
+      throw new Error(`ビデオフレームの描画に失敗しました: ${drawError instanceof Error ? drawError.message : "不明なエラー"}`);
     }
+
+    // キャンバスから画像データを取得
+    let imageData;
+    let compressionQuality = 0.8; // 初期圧縮率（高品質）
     
-    console.log("画像データを取得しました（長さ:", imageData.length, "）");
-    
+    try {
+      imageData = canvasElement.toDataURL("image/jpeg", compressionQuality);
+      console.log("画像データを取得しました。サイズ:", imageData.length);
+      
+      // データサイズが大きすぎる場合は圧縮率を下げる（1MB以上）
+      if (imageData.length > 1000000) {
+        console.log("画像サイズが大きいため、圧縮率を下げます:", imageData.length);
+        compressionQuality = 0.6; // 圧縮率を下げる
+        imageData = canvasElement.toDataURL("image/jpeg", compressionQuality);
+        console.log("再圧縮後の画像サイズ:", imageData.length);
+        
+        // それでも大きい場合はさらに圧縮
+        if (imageData.length > 800000) {
+          compressionQuality = 0.4;
+          imageData = canvasElement.toDataURL("image/jpeg", compressionQuality);
+          console.log("さらに圧縮後の画像サイズ:", imageData.length);
+        }
+      }
+    } catch (imageError) {
+      console.error("画像データ取得エラー:", imageError);
+      throw new Error(`画像データの取得に失敗しました: ${imageError instanceof Error ? imageError.message : "不明なエラー"}`);
+    }
+
     // 顔認識APIを呼び出す
     return await sendImageToAPI(imageData);
   } catch (error) {
     console.error("顔認識処理中にエラーが発生しました:", error);
     return {
       success: false,
-      error: error instanceof Error ? error : new Error("不明なエラー")
+      error: error instanceof Error ? error : new Error(String(error))
     };
   }
 };
 
 /**
  * 画像データをAPIに送信する関数
- * 
+ *
  * @param imageData - Base64エンコードされた画像データ
  * @returns Promise<{success: boolean, data?: any, error?: Error}> - APIレスポンスのPromise
  */
 const sendImageToAPI = async (imageData: string): Promise<{success: boolean, data?: any, error?: Error}> => {
   try {
-    console.log("顔認識APIを呼び出します");
+    console.log("顔認識APIを呼び出します。データサイズ:", imageData.length);
+    
+    // APIリクエストの開始時間を記録
+    const startTime = Date.now();
+    
     const response = await fetch("/api/analyze-face", {
       method: "POST",
       headers: {
@@ -147,16 +202,37 @@ const sendImageToAPI = async (imageData: string): Promise<{success: boolean, dat
       },
       body: JSON.stringify({ image: imageData }),
     });
+    
+    // APIリクエストの完了時間を記録
+    const endTime = Date.now();
+    const elapsedTime = endTime - startTime;
+    console.log(`APIレスポンスを受け取りました: ステータス=${response.status}, 処理時間=${elapsedTime}ms`);
 
-    console.log("APIレスポンスを受け取りました:", response.status);
-
+    // レスポンスのステータスコードを確認
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ error: "レスポンスの解析に失敗しました" }));
-      throw new Error(errorData.error || `顔認識APIからエラーレスポンスを受け取りました (${response.status})`);
+      let errorMessage;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.message || errorData.error || `顔認識APIからエラーレスポンスを受け取りました (${response.status})`;
+      } catch (jsonError) {
+        errorMessage = `顔認識APIからエラーレスポンスを受け取りました (${response.status}): JSONの解析に失敗しました`;
+      }
+      
+      console.error(errorMessage);
+      throw new Error(errorMessage);
     }
 
+    // 正常なレスポンスを解析
     const result = await response.json();
     console.log("顔認識結果:", result);
+
+    // 成功フラグを確認
+    if (!result.success) {
+      return {
+        success: false,
+        error: new Error(result.message || "顔認識APIからエラーが返されました")
+      };
+    }
 
     return {
       success: true,
@@ -166,7 +242,7 @@ const sendImageToAPI = async (imageData: string): Promise<{success: boolean, dat
     console.error("API呼び出し中にエラーが発生しました:", error);
     return {
       success: false,
-      error: error instanceof Error ? error : new Error("不明なエラー")
+      error: error instanceof Error ? error : new Error(`API呼び出しエラー: ${String(error)}`)
     };
   }
 };

@@ -1,0 +1,14 @@
+{
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/next"
+    }
+  ],
+  "build": {
+    "env": {
+      "NODEJS_VERSION": "18.x"
+    }
+  },
+  "installCommand": "npm install"
+}
