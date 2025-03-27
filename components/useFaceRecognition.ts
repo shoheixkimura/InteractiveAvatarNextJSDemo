@@ -31,6 +31,7 @@ interface UseFaceRecognitionOptions {
   greetingCooldown?: number; // 同じ人への挨拶間隔（ミリ秒）
   recognitionInterval?: number; // 顔認識の実行間隔（ミリ秒）
   confidenceThreshold?: number; // 顔認識の確信度の閾値（％）
+  maxRetries?: number; // 連続エラー時の最大リトライ回数
 }
 
 /**
@@ -54,7 +55,8 @@ export const useFaceRecognition = (
   const {
     greetingCooldown = 60000, // デフォルト: 60秒
     recognitionInterval = 5000, // デフォルト: 5秒
-    confidenceThreshold = 70 // デフォルト: 70%
+    confidenceThreshold = 70, // デフォルト: 70%
+    maxRetries = 3 // デフォルト: 3回
   } = options;
 
   // 状態変数
@@ -72,7 +74,10 @@ export const useFaceRecognition = (
   const startTime = useRef<number>(Date.now()); // 顔認識開始時間
   const recognitionCount = useRef<number>(0); // 顔認識実行回数
   const errorCount = useRef<number>(0); // エラー発生回数
-  
+  const consecutiveErrorCount = useRef<number>(0); // 連続エラー数
+  const lastSuccessfulTime = useRef<number>(0); // 最後に成功した時間
+  const recoveryModeActive = useRef<boolean>(false); // リカバリーモード中かどうか
+
   // デバッグログ関数
   const logDebug = useCallback((message: string, ...args: any[]) => {
     console.log(`[顔認識] ${message}`, ...args);
@@ -109,6 +114,10 @@ export const useFaceRecognition = (
 
     // エラーメッセージをクリア
     setErrorMessage('');
+    
+    // リカバリーモードをリセット
+    recoveryModeActive.current = false;
+    consecutiveErrorCount.current = 0;
   }, [videoId, logDebug]);
 
   // 認識した顔をリセットする関数
@@ -122,11 +131,11 @@ export const useFaceRecognition = (
   useEffect(() => {
     isMounted.current = true; // マウント時にフラグをtrueに設定
     startTime.current = Date.now(); // 開始時間を記録
-    
+
     return () => {
       isMounted.current = false; // アンマウント時にフラグをfalseに設定
       cleanup();
-      
+
       // 統計情報のログ出力
       const elapsedTime = Date.now() - startTime.current;
       console.log(`[顔認識統計] 実行時間: ${(elapsedTime / 1000).toFixed(1)}秒, 認識実行回数: ${recognitionCount.current}, エラー回数: ${errorCount.current}`);
@@ -135,6 +144,10 @@ export const useFaceRecognition = (
 
   // 顔認識の結果を処理する関数（共通ロジック）
   const processFaceRecognitionResult = useCallback(async (result: any) => {
+    // 連続エラーカウンターをリセット（成功時）
+    consecutiveErrorCount.current = 0;
+    lastSuccessfulTime.current = Date.now();
+    
     if (!result.success || !result.person) {
       logDebug('顔認識に失敗したか、認識された人物がいません');
       return false;
@@ -147,7 +160,7 @@ export const useFaceRecognition = (
 
     const { person, isChild, gender, confidence, ageRange, emotion } = result;
     logDebug(`顔認識結果: ${person}さん (${confidence.toFixed(2)}% 確信度) - ${isChild ? '子供' : '大人'}, ${gender}, 感情: ${emotion || '不明'}`);
-    
+
     if (ageRange) {
       logDebug(`推定年齢範囲: ${ageRange.low || '?'}-${ageRange.high || '?'}歳`);
     }
@@ -209,6 +222,15 @@ export const useFaceRecognition = (
         // クールダウン期間中
         const remainingCooldown = Math.ceil((greetingCooldown - timeSinceLastGreeting) / 1000);
         logDebug(`${person}さんは最近挨拶済みです（${Math.floor(timeSinceLastGreeting / 1000)}秒前、クールダウン残り${remainingCooldown}秒）`);
+        
+        // 認識情報を更新（最新の顔データで更新するが、lastGreetedTimeは変更しない）
+        const updatedFaces = [...recognizedFaces];
+        updatedFaces[existingFaceIndex] = {
+          ...faceInfo,
+          lastGreetedTime: lastGreeted // クールダウン継続のため前回の時間を維持
+        };
+        setRecognizedFaces(updatedFaces);
+        
         return false;
       }
     } else {
@@ -237,11 +259,13 @@ export const useFaceRecognition = (
 
   // 現在のフレームを分析する関数
   const analyzeCurrentFrame = useCallback(async () => {
+    // 状態チェック（分析中または挨拶中なら実行しない）
     if (isAnalyzing || isGreeting) {
       console.log("分析をスキップします。現在の状態:", { isAnalyzing, isGreeting });
       return;
     }
 
+    // 要素取得
     const videoElement = document.getElementById(videoId) as HTMLVideoElement;
     const canvasElement = document.getElementById(canvasId) as HTMLCanvasElement;
 
@@ -255,7 +279,7 @@ export const useFaceRecognition = (
 
     try {
       if (!isMounted.current) return;
-      
+
       recognitionCount.current++; // 認識実行回数をインクリメント
       setIsAnalyzing(true);
       logDebug('顔を分析中...');
@@ -265,15 +289,17 @@ export const useFaceRecognition = (
         videoReady: videoElement.readyState,
         videoSize: `${videoElement.videoWidth}x${videoElement.videoHeight}`,
         canvasSize: `${canvasElement.width}x${canvasElement.height}`,
-        streamActive: mediaStream.current ? mediaStream.current.active : false
+        streamActive: mediaStream.current ? mediaStream.current.active : false,
+        consecutiveErrors: consecutiveErrorCount.current,
+        recoveryMode: recoveryModeActive.current
       });
 
       // 分析開始時間
       const analysisStartTime = Date.now();
-      
+
       // 画像をキャプチャして分析
       const result = await captureAndAnalyzeFace(videoElement, canvasElement);
-      
+
       // 分析終了時間と所要時間
       const analysisEndTime = Date.now();
       const analysisTime = analysisEndTime - analysisStartTime;
@@ -281,7 +307,39 @@ export const useFaceRecognition = (
 
       if (!result.success) {
         errorCount.current++; // エラー回数をインクリメント
-        throw new Error(result.error?.message || '顔分析に失敗しました');
+        consecutiveErrorCount.current++; // 連続エラー数をインクリメント
+        
+        // エラーメッセージを設定
+        const errorMsg = result.error?.message || '顔分析に失敗しました';
+        
+        // リカバリーモードの判定
+        if (consecutiveErrorCount.current >= maxRetries) {
+          if (!recoveryModeActive.current) {
+            recoveryModeActive.current = true;
+            logDebug(`連続${maxRetries}回のエラーが発生したため、リカバリーモードに移行します`);
+          }
+          
+          // 最後の成功から長時間経過している場合、カメラリセットを提案
+          const timeSinceLastSuccess = Date.now() - lastSuccessfulTime.current;
+          if (timeSinceLastSuccess > 30000) { // 30秒以上成功していない
+            setErrorMessage(`顔認識が動作していません。カメラへのアクセスを確認し、必要であれば再起動してください。`);
+          } else {
+            setErrorMessage(`顔認識エラー: ${errorMsg} - リトライします...`);
+          }
+        } else {
+          // 通常エラー（連続エラーが閾値未満）
+          logDebug(`顔認識エラー (${consecutiveErrorCount.current}/${maxRetries}): ${errorMsg}`);
+          setErrorMessage(`顔認識エラー: ${errorMsg}`);
+        }
+        
+        throw new Error(errorMsg);
+      }
+
+      // 分析が成功した場合
+      if (recoveryModeActive.current) {
+        logDebug("リカバリーモードを終了します - 顔認識が正常に動作しています");
+        recoveryModeActive.current = false;
+        setErrorMessage(''); // エラーメッセージをクリア
       }
 
       // 分析結果を処理
@@ -294,15 +352,75 @@ export const useFaceRecognition = (
     } catch (error) {
       errorCount.current++; // エラー回数をインクリメント
       console.error('顔認識エラー:', error);
-      const errorMsg = error instanceof Error ? error.message : '不明なエラー';
-      setErrorMessage(`顔認識エラー: ${errorMsg}`);
-      logDebug(`顔認識エラー: ${errorMsg}`);
+      
+      // エラーメッセージを設定（リカバリーモード中は上書きしない）
+      if (!recoveryModeActive.current) {
+        const errorMsg = error instanceof Error ? error.message : '不明なエラー';
+        setErrorMessage(`顔認識エラー: ${errorMsg}`);
+        logDebug(`顔認識エラー: ${errorMsg}`);
+      }
     } finally {
       if (isMounted.current) {
         setIsAnalyzing(false);
       }
     }
-  }, [canvasId, isAnalyzing, isGreeting, logDebug, processFaceRecognitionResult, videoId]);
+  }, [canvasId, isAnalyzing, isGreeting, logDebug, maxRetries, processFaceRecognitionResult, videoId]);
+
+  // カメラとの接続を回復する関数
+  const recoverCamera = useCallback(async () => {
+    try {
+      logDebug("カメラ接続の回復を試みています...");
+      
+      // 既存のリソースをクリーンアップ
+      if (mediaStream.current) {
+        mediaStream.current.getTracks().forEach(track => track.stop());
+        mediaStream.current = null;
+      }
+      
+      // ビデオ要素をリセット
+      const videoElement = document.getElementById(videoId) as HTMLVideoElement;
+      if (videoElement) {
+        videoElement.srcObject = null;
+        videoElement.load();
+      }
+      
+      // カメラへのアクセス許可を再取得
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: "user", // フロントカメラを優先
+          width: { ideal: 1280 }, // 理想的な幅
+          height: { ideal: 720 } // 理想的な高さ
+        }
+      });
+      
+      // ストリームを保存
+      mediaStream.current = stream;
+      
+      // ビデオストリームを再設定
+      if (videoElement) {
+        await setupVideoStream(
+          videoElement,
+          stream,
+          () => {
+            logDebug("カメラ接続を回復しました");
+            recoveryModeActive.current = false;
+            consecutiveErrorCount.current = 0;
+            setErrorMessage('');
+          },
+          (error) => {
+            logDebug(`カメラ回復に失敗しました: ${error.message}`);
+            setErrorMessage(`カメラ接続の回復に失敗しました: ${error.message}`);
+          }
+        );
+      }
+      
+      return true;
+    } catch (error) {
+      console.error("カメラ回復エラー:", error);
+      setErrorMessage(`カメラ接続の回復に失敗しました: ${error instanceof Error ? error.message : "不明なエラー"}`);
+      return false;
+    }
+  }, [logDebug, videoId]);
 
   // 顔認識を開始する関数
   const startRecognition = useCallback(async () => {
@@ -314,6 +432,9 @@ export const useFaceRecognition = (
       startTime.current = Date.now();
       recognitionCount.current = 0;
       errorCount.current = 0;
+      consecutiveErrorCount.current = 0;
+      lastSuccessfulTime.current = Date.now();
+      recoveryModeActive.current = false;
 
       // エラーメッセージをクリア
       setErrorMessage('');
@@ -333,7 +454,7 @@ export const useFaceRecognition = (
         // ストリームを保存
         mediaStream.current = stream;
         logDebug('カメラへのアクセスが許可されました');
-        
+
         // ストリーム情報をログ
         const tracks = stream.getTracks();
         console.log("取得したトラック:", tracks.map(t => ({
@@ -371,6 +492,16 @@ export const useFaceRecognition = (
             if (isMounted.current && !isAnalyzing && !isGreeting) {
               analyzeCurrentFrame().catch(err => {
                 console.error("定期的な顔認識中にエラーが発生しました:", err);
+                
+                // リカバリーモード中で長時間エラーが継続している場合、カメラの再接続を試みる
+                if (recoveryModeActive.current) {
+                  const timeSinceLastSuccess = Date.now() - lastSuccessfulTime.current;
+                  if (timeSinceLastSuccess > 60000) { // 1分以上成功していない
+                    recoverCamera().catch(recoverErr => {
+                      console.error("カメラ再接続エラー:", recoverErr);
+                    });
+                  }
+                }
               });
             }
           }, recognitionInterval);
@@ -395,18 +526,18 @@ export const useFaceRecognition = (
       logDebug(`顔認識開始エラー: ${errorMsg}`);
       cleanup();
     }
-  }, [analyzeCurrentFrame, canvasId, cleanup, isAnalyzing, isGreeting, logDebug, recognitionInterval, videoId]);
+  }, [analyzeCurrentFrame, canvasId, cleanup, isAnalyzing, isGreeting, logDebug, recoverCamera, recognitionInterval, videoId]);
 
   // 顔認識を停止する関数
   const stopRecognition = useCallback(() => {
     cleanup();
     if (isMounted.current) {
       setIsEnabled(false);
-      
+
       // 統計情報のログ出力
       const elapsedTime = Date.now() - startTime.current;
       console.log(`[顔認識統計] 停止時の統計 - 実行時間: ${(elapsedTime / 1000).toFixed(1)}秒, 認識実行回数: ${recognitionCount.current}, エラー回数: ${errorCount.current}`);
-      
+
       logDebug('顔認識を停止しました');
     }
   }, [cleanup, logDebug]);

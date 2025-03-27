@@ -1,3 +1,195 @@
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { 
+  Button, 
+  Spinner, 
+  Input, 
+  Select, 
+  SelectItem, 
+  Card, 
+  CardBody, 
+  CardFooter, 
+  Divider,
+  Tooltip,
+  Badge
+} from "@nextui-org/react";
+import InteractiveAvatarTextInput from "./InteractiveAvatarTextInput";
+import FaceRecognitionUI from "./FaceRecognitionUI";
+import { useFaceRecognition } from "./useFaceRecognition";
+import { TaskType, TaskMode } from "@heygen/streaming-avatar";
+
+// 言語リスト（STT = Speech to Text）
+const STT_LANGUAGE_LIST = [
+  { code: "en-US", name: "English (US)" },
+  { code: "ja-JP", name: "日本語" },
+  { code: "zh-CN", name: "简体中文" },
+  { code: "fr-FR", name: "Français" },
+  { code: "de-DE", name: "Deutsch" },
+  { code: "es-ES", name: "Español" },
+  { code: "ko-KR", name: "한국어" },
+];
+
+// アバターのサンプルリスト
+const AVATARS = [
+  { id: "YfZ0z7vG0", name: "Hope" },
+  { id: "XNMX1MyZY", name: "Alice" },
+  { id: "e5RbGl", name: "Daniel" },
+];
+
+// 前の値を記憶するカスタムフック
+function usePrevious<T>(value: T): T | undefined {
+  const ref = useRef<T>();
+  useEffect(() => {
+    ref.current = value;
+  }, [value]);
+  return ref.current;
+}
+
+export default function InteractiveAvatar() {
+  // 状態変数
+  const [knowledgeId, setKnowledgeId] = useState<string>("");
+  const [avatarId, setAvatarId] = useState<string>("YfZ0z7vG0");
+  const [customPrompt, setCustomPrompt] = useState<string>("");
+  const [llmProvider, setLlmProvider] = useState<string>("openai");
+  const [llmModel, setLlmModel] = useState<string>("gpt-4");
+  const [language, setLanguage] = useState<string>("ja-JP");
+  const [debug, setDebug] = useState<string>("");
+  const [isLoadingSession, setIsLoadingSession] = useState(false);
+  const [isLoadingRepeat, setIsLoadingRepeat] = useState(false);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [text, setText] = useState<string>("");
+  const [isMicActive, setIsMicActive] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [fullScreenMode, setFullScreenMode] = useState(false);
+  const [cameraEnabled, setCameraEnabled] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [cameraDescription, setCameraDescription] = useState<string>("");
+
+  // 参照変数
+  const mediaStream = useRef<HTMLVideoElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const avatar = useRef<any>(null);
+  const isInitialMount = useRef(true);
+  const cameraAnalysisInterval = useRef<NodeJS.Timeout | null>(null);
+
+  // 顔認識機能の設定
+  const {
+    isEnabled: faceRecognitionEnabled,
+    isAnalyzing: isFaceAnalyzing,
+    isGreeting,
+    recognizedFaces,
+    currentFace,
+    errorMessage: faceRecognitionError,
+    startRecognition,
+    stopRecognition,
+    analyzeCurrentFrame: analyzeFace,
+    resetRecognizedFaces,
+  } = useFaceRecognition(
+    "face-recognition-video",
+    "face-recognition-canvas",
+    async (person, isChild, gender) => {
+      // 人物に挨拶する処理
+      if (avatar.current) {
+        let greeting = "";
+        if (isChild) {
+          greeting = `こんにちは、${person}くん！元気？楽しいことしようね！`;
+        } else {
+          if (gender === "Male") {
+            greeting = `${person}さん、こんにちは。お会いできて光栄です。`;
+          } else if (gender === "Female") {
+            greeting = `${person}さん、こんにちは。お会いできてうれしいです。`;
+          } else {
+            greeting = `${person}さん、こんにちは。お会いできてうれしいです。`;
+          }
+        }
+        
+        await avatar.current.speak({
+          text: greeting,
+          taskType: TaskType.TALK,
+          taskMode: TaskMode.SYNC,
+        });
+      }
+    },
+    (message) => {
+      // デバッグ情報の表示
+      setDebug(message);
+    },
+    {
+      greetingCooldown: 60000, // 同じ人への挨拶間隔（60秒）
+      recognitionInterval: 5000, // 顔認識の間隔（5秒）
+    }
+  );
+
+  // セッション開始関数
+  const startSession = async () => {
+    try {
+      setIsLoadingSession(true);
+      // セッション開始処理（省略）
+      // ...
+      
+      // 処理完了時
+      setStream(new MediaStream());
+    } catch (error) {
+      console.error("Session start error:", error);
+      setDebug(`Session start error: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      setIsLoadingSession(false);
+    }
+  };
+
+  // セッション終了関数
+  const endSession = () => {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      setStream(null);
+    }
+    
+    // その他のクリーンアップ処理
+  };
+
+  // 設定保存関数
+  const saveSettings = async () => {
+    // 設定保存と再起動処理
+    endSession();
+    await startSession();
+    setShowSettings(false);
+  };
+
+  // インタラプト関数
+  const handleInterrupt = () => {
+    if (avatar.current) {
+      avatar.current.interrupt();
+    }
+  };
+
+  // テキスト読み上げ関数
+  const handleSpeak = async () => {
+    if (avatar.current && text) {
+      try {
+        setIsLoadingRepeat(true);
+        await avatar.current.speak({
+          text: text,
+          taskType: TaskType.TALK,
+          taskMode: TaskMode.SYNC,
+        });
+      } catch (error) {
+        console.error("Speak error:", error);
+      } finally {
+        setIsLoadingRepeat(false);
+      }
+    }
+  };
+
+  // マイク切り替え関数
+  const toggleMicrophone = () => {
+    setIsMicActive(!isMicActive);
+  };
+
+  // 設定表示切り替え関数
+  const toggleSettings = () => {
+    setShowSettings(!showSettings);
+  };
+
   const previousText = usePrevious(text);
   useEffect(() => {
     if (!previousText && text) {
@@ -226,7 +418,7 @@
       <Button
         color={cameraEnabled ? "danger" : "success"}
         variant="flat"
-        onClick={cameraEnabled ? stopCameraAnalysis : startCameraAnalysis}
+        onPress={cameraEnabled ? stopCameraAnalysis : startCameraAnalysis}
         className="w-full mb-2"
       >
         {cameraEnabled ? "カメラ分析を停止" : "カメラ分析を開始"}
@@ -240,8 +432,8 @@
               size="sm"
               color="primary"
               isLoading={isAnalyzing}
-              onClick={analyzeCurrentFrameManually}
-              disabled={isAnalyzing}
+              onPress={analyzeCurrentFrameManually}
+              isDisabled={isAnalyzing}
             >
               今すぐ分析
             </Button>
@@ -430,9 +622,9 @@
                 {/* 顔認識機能を有効化するボタン */}
                 <p className="text-sm font-medium leading-none mt-3 flex items-center">
                   <span>顔認識機能</span>
-                  <Badge 
-                    className="ml-2" 
-                    color="primary" 
+                  <Badge
+                    className="ml-2"
+                    color="primary"
                     variant="flat"
                     size="sm"
                   >
@@ -442,18 +634,18 @@
                 <Button
                   color={faceRecognitionEnabled ? "danger" : "success"}
                   variant="flat"
-                  onClick={toggleFaceRecognition}
+                  onPress={toggleFaceRecognition}
                   className="w-full mt-1"
                   startContent={
-                    <svg 
-                      xmlns="http://www.w3.org/2000/svg" 
-                      width="16" 
-                      height="16" 
-                      viewBox="0 0 24 24" 
-                      fill="none" 
-                      stroke="currentColor" 
-                      strokeWidth="2" 
-                      strokeLinecap="round" 
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
                       strokeLinejoin="round"
                     >
                       <circle cx="12" cy="8" r="5" />
@@ -463,7 +655,7 @@
                 >
                   {faceRecognitionEnabled ? "顔認識を停止" : "顔認識を開始"}
                 </Button>
-                <Tooltip 
+                <Tooltip
                   content="カメラを使って、映っている人の顔を認識し名前で挨拶します。public/reference-faces/ に「名前.jpg」形式の画像を保存しておく必要があります。"
                   placement="bottom"
                 >

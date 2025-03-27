@@ -1,4 +1,4 @@
-import { Badge, Button, Tooltip, Progress, Card, Divider, Switch } from "@nextui-org/react";
+import { Badge, Button, Tooltip, Progress, Card, CardBody, Divider, Switch } from "@nextui-org/react";
 import { useCallback, useState } from "react";
 import { RecognizedFace } from './useFaceRecognition';
 
@@ -17,7 +17,7 @@ interface FaceRecognitionUIProps {
 }
 
 /**
- * 顔認識機能のUIコンポーネント
+ * 顔認識機能のUIコンポーネント - 改善版
  */
 export default function FaceRecognitionUI({
   isEnabled,
@@ -142,7 +142,7 @@ export default function FaceRecognitionUI({
       <>
         {/* メインの顔認識ボタン */}
         <Button
-          onClick={handleToggle}
+          onPress={handleToggle}
           className={`absolute bottom-8 left-24 p-4 rounded-full ${
             isEnabled ? "bg-purple-500" : "bg-gray-500"
           } text-white shadow-lg transition-all duration-300 hover:scale-110`}
@@ -156,7 +156,7 @@ export default function FaceRecognitionUI({
 
         {/* 設定ボタン */}
         <Button
-          onClick={toggleSettings}
+          onPress={toggleSettings}
           className="absolute bottom-8 left-8 p-3 rounded-full bg-gray-700 text-white shadow-lg transition-all duration-300 hover:scale-110"
           style={{ zIndex: 1000 }}
           isDisabled={!isEnabled}
@@ -166,7 +166,7 @@ export default function FaceRecognitionUI({
 
         {/* ヘルプボタン */}
         <Button
-          onClick={toggleHelp}
+          onPress={toggleHelp}
           className="absolute bottom-24 left-8 p-3 rounded-full bg-blue-600 text-white shadow-lg transition-all duration-300 hover:scale-110"
           style={{ zIndex: 1000 }}
         >
@@ -179,11 +179,11 @@ export default function FaceRecognitionUI({
             <div className="flex justify-between items-center mb-2">
               <h3 className="text-sm font-bold">認識された人物:</h3>
               {onReset && (
-                <Button 
-                  size="sm" 
-                  isIconOnly 
-                  variant="light" 
-                  onClick={handleReset}
+                <Button
+                  size="sm"
+                  isIconOnly
+                  variant="light"
+                  onPress={handleReset}
                   className="text-white"
                 >
                   <ResetIcon />
@@ -219,10 +219,10 @@ export default function FaceRecognitionUI({
                 <span>5秒</span>
               </div>
               <Divider className="my-2" />
-              <Button 
-                size="sm" 
-                color="primary" 
-                onClick={onAnalyze} 
+              <Button
+                size="sm"
+                color="primary"
+                onClick={onAnalyze}
                 isDisabled={isAnalyzing || isGreeting}
                 isLoading={isAnalyzing}
                 fullWidth
@@ -241,37 +241,79 @@ export default function FaceRecognitionUI({
               <p>この機能はカメラを使って目の前にいる人の顔を認識し、名前で挨拶します。</p>
               <p>顔の登録はサーバーに「人の名前.jpg」の形式で画像を保存してください。</p>
               <p>子供と判定された場合は、より親しみやすい挨拶をします。</p>
+              <div className="mt-2 pt-2 border-t border-gray-600">
+                <p className="font-semibold">対応状況</p>
+                <ul className="list-disc list-inside">
+                  <li>AWSのRekognitionを使用して顔認識を行います</li>
+                  <li>一度認識した人には一定時間内に再度挨拶しません</li>
+                  <li>子供/大人、男性/女性を自動判定します</li>
+                </ul>
+              </div>
             </div>
           </div>
         )}
 
-        {/* エラーメッセージ */}
+        {/* エラーメッセージ - 改善版 */}
         {errorMessage && (
           <div className="absolute top-16 left-1/2 transform -translate-x-1/2 bg-red-500 bg-opacity-90 text-white px-4 py-2 rounded-lg max-w-xs text-center" style={{ zIndex: 1001 }}>
-            {errorMessage}
+            <div className="flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              <span>{errorMessage}</span>
+            </div>
+            {errorMessage.includes('カメラ') && (
+              <div className="text-xs mt-2 border-t border-red-400 pt-2">
+                <p>解決策: カメラへのアクセス許可を確認し、ブラウザの設定を確認してください。</p>
+              </div>
+            )}
+            {errorMessage.includes('失敗') && (
+              <div className="text-xs mt-2 border-t border-red-400 pt-2">
+                <p>解決策: 顔認識を停止して再開してみてください。問題が解決しない場合はページを再読み込みしてください。</p>
+              </div>
+            )}
           </div>
         )}
 
-        {/* 現在分析中/挨拶中の状態表示 */}
+        {/* 現在分析中/挨拶中の状態表示 - 改善版 */}
         {isEnabled && (isAnalyzing || isGreeting) && (
           <div className="absolute top-2 left-1/2 transform -translate-x-1/2 bg-black bg-opacity-70 backdrop-blur-sm text-white px-4 py-2 rounded-lg text-center" style={{ zIndex: 1001 }}>
             {isAnalyzing && (
               <div className="flex items-center space-x-2">
                 <span className="animate-pulse">顔を分析中...</span>
-                <Progress 
-                  size="sm" 
-                  isIndeterminate 
-                  aria-label="分析中" 
-                  className="max-w-24" 
+                <Progress
+                  size="sm"
+                  isIndeterminate
+                  aria-label="分析中"
+                  className="max-w-24"
                   color="primary"
                 />
               </div>
             )}
             {isGreeting && !isAnalyzing && (
-              <div className="flex items-center space-x-2">
-                <span>挨拶中: {currentFace?.person}さん</span>
+              <div className="flex flex-col items-center">
+                <div className="flex items-center space-x-2">
+                  <span className="animate-pulse text-blue-300">●</span>
+                  <span>挨拶中: <span className="font-bold">{currentFace?.person}さん</span></span>
+                </div>
+                {currentFace && (
+                  <div className="text-xs mt-1 text-blue-200">
+                    {currentFace.isChild ? '子供' : '大人'} / {currentFace.gender === 'Male' ? '男性' : currentFace.gender === 'Female' ? '女性' : '不明'}
+                    {currentFace.emotion && ` / 感情: ${currentFace.emotion}`}
+                  </div>
+                )}
               </div>
             )}
+          </div>
+        )}
+        
+        {/* 顔認識ステータスバッジ */}
+        {isEnabled && !isAnalyzing && !isGreeting && (
+          <div className="absolute top-2 right-20 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded-full" style={{ zIndex: 998 }}>
+            <div className="flex items-center">
+              <span className="inline-block w-2 h-2 mr-1 bg-green-500 rounded-full"></span>
+              <span>顔認識: オン</span>
+            </div>
           </div>
         )}
 
@@ -327,21 +369,21 @@ export default function FaceRecognitionUI({
             </Tooltip>
           </h3>
           <div className="flex gap-2">
-            <Button 
-              size="sm" 
-              isIconOnly 
-              variant="light" 
-              onClick={toggleHelp}
+            <Button
+              size="sm"
+              isIconOnly
+              variant="light"
+              onPress={toggleHelp}
               className="text-default-500"
             >
               <HelpIcon />
             </Button>
             {onReset && (
-              <Button 
-                size="sm" 
-                isIconOnly 
-                variant="light" 
-                onClick={handleReset}
+              <Button
+                size="sm"
+                isIconOnly
+                variant="light"
+                onPress={handleReset}
                 className="text-default-500"
                 isDisabled={!isEnabled || recognizedFaces.length === 0}
               >
@@ -354,7 +396,7 @@ export default function FaceRecognitionUI({
         <Button
           color={isEnabled ? "danger" : "success"}
           variant="flat"
-          onClick={handleToggle}
+          onPress={handleToggle}
           className="w-full"
           startContent={<FaceIcon />}
           isDisabled={isAnalyzing || isGreeting}
@@ -363,9 +405,25 @@ export default function FaceRecognitionUI({
           {isEnabled ? "顔認識を停止" : "顔認識を開始"}
         </Button>
 
+        {/* エラーメッセージ - 改善版 */}
         {errorMessage && (
-          <div className="p-2 bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-200 rounded-lg text-sm">
-            {errorMessage}
+          <div className="p-2 bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-200 rounded-lg">
+            <div className="flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              <span className="text-sm">{errorMessage}</span>
+            </div>
+            {(errorMessage.includes('カメラ') || errorMessage.includes('video')) && (
+              <div className="ml-7 text-xs mt-1">
+                <p>解決策: カメラへのアクセス許可を確認し、ブラウザの設定を確認してください。</p>
+              </div>
+            )}
+            {errorMessage.includes('失敗') && (
+              <div className="ml-7 text-xs mt-1">
+                <p>解決策: 顔認識を停止して再開してみてください。</p>
+              </div>
+            )}
           </div>
         )}
 
@@ -377,6 +435,7 @@ export default function FaceRecognitionUI({
               <li>カメラに映った人物の顔が登録されていれば、名前で挨拶します</li>
               <li>顔画像の登録は「人の名前.jpg」の形式でサーバーに保存します</li>
               <li>子供と判定された場合は、より親しみやすい挨拶をします</li>
+              <li>同じ人物には一定時間（デフォルト1分）以内に再度挨拶しません</li>
             </ul>
           </div>
         )}
@@ -390,16 +449,16 @@ export default function FaceRecognitionUI({
                   size="sm"
                   color="primary"
                   isLoading={isAnalyzing}
-                  onClick={onAnalyze}
+                  onPress={onAnalyze}
                   isDisabled={isAnalyzing || isGreeting}
                 >
                   今すぐ分析
                 </Button>
                 <Button
-                  size="sm" 
+                  size="sm"
                   isIconOnly
-                  variant="bordered" 
-                  onClick={toggleSettings}
+                  variant="bordered"
+                  onPress={toggleSettings}
                   className="text-default-500"
                 >
                   <SettingsIcon />
@@ -407,7 +466,7 @@ export default function FaceRecognitionUI({
               </div>
             </div>
 
-            {/* カメラプレビュー */}
+            {/* カメラプレビュー - 改善版 */}
             <div
               className="rounded-lg overflow-hidden border border-default-200 dark:border-default-100/20 bg-black relative"
               style={{ maxWidth: "100%", height: "200px", margin: "0 auto" }}
@@ -423,8 +482,8 @@ export default function FaceRecognitionUI({
                 id="face-recognition-canvas"
                 style={{ display: "none" }}
               />
-              
-              {/* ステータスオーバーレイ */}
+
+              {/* ステータスオーバーレイ - 改善版 */}
               <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white text-xs p-2">
                 {isAnalyzing ? (
                   <div className="flex items-center justify-between">
@@ -432,11 +491,11 @@ export default function FaceRecognitionUI({
                       <span className="inline-block w-2 h-2 mr-1 bg-red-500 rounded-full animate-pulse"></span>
                       顔分析中...
                     </span>
-                    <Progress 
-                      size="sm" 
-                      isIndeterminate 
-                      aria-label="分析中" 
-                      className="max-w-24" 
+                    <Progress
+                      size="sm"
+                      isIndeterminate
+                      aria-label="分析中"
+                      className="max-w-24"
                       color="primary"
                     />
                   </div>
@@ -445,6 +504,9 @@ export default function FaceRecognitionUI({
                     <span className="flex items-center">
                       <span className="inline-block w-2 h-2 mr-1 bg-blue-500 rounded-full animate-pulse"></span>
                       挨拶中: {currentFace?.person}さん
+                    </span>
+                    <span className="text-xs">
+                      {currentFace?.isChild ? "子供" : "大人"}/{currentFace?.gender === "Male" ? "男性" : "女性"}
                     </span>
                   </div>
                 ) : (
@@ -459,11 +521,11 @@ export default function FaceRecognitionUI({
               </div>
             </div>
 
-            {/* 設定パネル */}
+            {/* 設定パネル - 改善版 */}
             {showSettings && (
               <div className="p-3 bg-default-100 dark:bg-default-50/10 rounded-lg text-sm">
                 <h4 className="text-sm font-medium mb-2">顔認識設定</h4>
-                <div className="space-y-2 text-xs">
+                <div className="space-y-3 text-xs">
                   <div className="flex justify-between items-center">
                     <span>自動認識</span>
                     <Switch size="sm" defaultSelected isDisabled />
@@ -472,16 +534,42 @@ export default function FaceRecognitionUI({
                     <span>認識間隔</span>
                     <span>5秒</span>
                   </div>
+                  <div className="flex justify-between items-center">
+                    <span>確信度閾値</span>
+                    <span>70%</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>挨拶クールダウン</span>
+                    <span>60秒</span>
+                  </div>
+                  <Divider className="my-1" />
+                  <div className="text-xs text-default-500">
+                    <p>顔認識はAWS Rekognitionを使用して実行されます。</p>
+                    <p>人物の登録は「/public/reference-faces/」ディレクトリに「名前.jpg」の形式で画像を保存してください。</p>
+                  </div>
                 </div>
               </div>
             )}
 
-            {/* 認識された人物リスト */}
+            {/* 認識された人物リスト - 改善版 */}
             {recognizedFaces.length > 0 && (
               <div className="p-3 bg-default-100 dark:bg-default-50/10 rounded-lg">
                 <div className="flex justify-between items-center mb-2">
                   <h4 className="text-sm font-medium">認識された人物</h4>
-                  <span className="text-xs text-default-500">{recognizedFaces.length}人</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-default-500">{recognizedFaces.length}人</span>
+                    {onReset && recognizedFaces.length > 0 && (
+                      <Button 
+                        size="sm" 
+                        variant="flat" 
+                        color="default" 
+                        onClick={handleReset}
+                        startContent={<ResetIcon />}
+                      >
+                        リセット
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 <ul className="text-xs space-y-2 max-h-40 overflow-y-auto">
                   {recognizedFaces.map((face, index) => (
@@ -490,11 +578,13 @@ export default function FaceRecognitionUI({
                         <div className="font-medium">{face.person}さん</div>
                         <div className="text-default-500 text-xs">
                           {face.isChild ? "子供" : "大人"} / {face.gender === "Male" ? "男性" : face.gender === "Female" ? "女性" : "不明"}
+                          {face.emotion && ` / ${face.emotion}`}
+                          {face.ageRange && ` / 推定${face.ageRange.low}-${face.ageRange.high}歳`}
                         </div>
                       </div>
                       {face.confidence && (
-                        <Badge 
-                          color={face.confidence > 90 ? "success" : face.confidence > 80 ? "primary" : "warning"} 
+                        <Badge
+                          color={face.confidence > 90 ? "success" : face.confidence > 80 ? "primary" : "warning"}
                           variant="flat"
                         >
                           {face.confidence.toFixed(1)}%

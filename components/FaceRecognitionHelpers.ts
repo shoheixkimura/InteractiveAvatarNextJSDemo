@@ -20,6 +20,7 @@ export const setupVideoStream = async (
   onError: (error: Error) => void
 ) => {
   try {
+    // 入力パラメータの検証
     if (!videoElement) {
       throw new Error("ビデオ要素が提供されていません");
     }
@@ -28,47 +29,71 @@ export const setupVideoStream = async (
       throw new Error("メディアストリームが提供されていません");
     }
 
+    if (!stream.active) {
+      throw new Error("メディアストリームがアクティブではありません");
+    }
+
     console.log("ビデオストリーム設定開始:", {
       videoElementExists: !!videoElement,
       streamExists: !!stream,
-      streamTracks: stream.getTracks().map(t => t.kind).join(', ')
+      streamActive: stream.active,
+      streamTracks: stream.getTracks().map(t => ({
+        kind: t.kind,
+        label: t.label,
+        enabled: t.enabled,
+        state: t.readyState
+      }))
     });
 
     // ビデオ要素にストリームを設定
     videoElement.srcObject = stream;
     videoElement.muted = true; // 音声フィードバックを防止
     videoElement.playsInline = true; // モバイルでのインライン再生を有効化
+    videoElement.crossOrigin = "anonymous"; // CORS対策
 
     // loadedmetadata イベントを待ってから再生開始
     const playPromise = new Promise<void>((resolve, reject) => {
       // タイムアウト処理（10秒）
       const timeoutId = setTimeout(() => {
+        cleanupEvents();
         console.error("ビデオ読み込みタイムアウト");
         reject(new Error("ビデオ読み込みタイムアウト - ブラウザの権限設定を確認してください"));
       }, 10000);
 
+      // イベントクリーンアップ関数
+      const cleanupEvents = () => {
+        clearTimeout(timeoutId);
+        videoElement.onloadedmetadata = null;
+        videoElement.onloadeddata = null;
+        videoElement.onerror = null;
+      };
+
       // メタデータロード完了時の処理
       videoElement.onloadedmetadata = async () => {
-        clearTimeout(timeoutId);
-        try {
-          console.log("ビデオメタデータが読み込まれました:", {
-            videoWidth: videoElement.videoWidth,
-            videoHeight: videoElement.videoHeight
-          });
-          
-          // ビデオの再生を開始
-          await videoElement.play();
-          console.log("ビデオ再生を開始しました");
-          resolve();
-        } catch (playError) {
-          console.error("ビデオ再生開始エラー:", playError);
-          reject(new Error(`ビデオの再生に失敗しました: ${playError instanceof Error ? playError.message : "不明なエラー"}`));
-        }
+        console.log("ビデオメタデータが読み込まれました:", {
+          videoWidth: videoElement.videoWidth,
+          videoHeight: videoElement.videoHeight,
+          readyState: videoElement.readyState
+        });
+
+        // ビデオがデータを読み込んだ後に処理を続行
+        videoElement.onloadeddata = async () => {
+          cleanupEvents();
+          try {
+            // ビデオの再生を開始
+            await videoElement.play();
+            console.log("ビデオ再生を開始しました");
+            resolve();
+          } catch (playError) {
+            console.error("ビデオ再生開始エラー:", playError);
+            reject(new Error(`ビデオの再生に失敗しました: ${playError instanceof Error ? playError.message : "不明なエラー"}`));
+          }
+        };
       };
 
       // エラーハンドリング
       videoElement.onerror = (event) => {
-        clearTimeout(timeoutId);
+        cleanupEvents();
         console.error("ビデオ要素エラー:", videoElement.error);
         reject(new Error(`ビデオエラー: ${videoElement.error?.message || "不明なエラー"}`));
       };
@@ -97,6 +122,7 @@ export const captureAndAnalyzeFace = async (
   canvasElement: HTMLCanvasElement
 ): Promise<{success: boolean, data?: any, error?: Error}> => {
   try {
+    // 入力パラメータの検証
     if (!videoElement || !canvasElement) {
       throw new Error("ビデオ要素またはキャンバス要素が提供されていません");
     }
@@ -111,22 +137,38 @@ export const captureAndAnalyzeFace = async (
     if (videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
       console.error("ビデオサイズが無効です:", {
         width: videoElement.videoWidth,
-        height: videoElement.videoHeight
+        height: videoElement.videoHeight,
+        readyState: videoElement.readyState,
+        paused: videoElement.paused,
+        ended: videoElement.ended
       });
+      
+      // カメラストリームの状態を確認
+      const stream = videoElement.srcObject as MediaStream;
+      if (stream) {
+        const tracks = stream.getVideoTracks();
+        console.log("ビデオトラック状態:", tracks.map(t => ({
+          enabled: t.enabled,
+          readyState: t.readyState,
+          muted: t.muted
+        })));
+      }
+      
       throw new Error("ビデオのサイズが無効です。カメラへのアクセス権限を確認してください。");
     }
 
     console.log("顔分析のための画像をキャプチャします", {
       videoWidth: videoElement.videoWidth,
-      videoHeight: videoElement.videoHeight
+      videoHeight: videoElement.videoHeight,
+      readyState: videoElement.readyState
     });
 
     // キャンバスコンテキストの取得（パフォーマンス最適化を設定）
-    const context = canvasElement.getContext("2d", { 
+    const context = canvasElement.getContext("2d", {
       willReadFrequently: true,
       alpha: false  // 透明度が不要なので無効化してパフォーマンス向上
     });
-    
+
     if (!context) {
       throw new Error("Canvasコンテキストを取得できませんでした");
     }
@@ -134,7 +176,7 @@ export const captureAndAnalyzeFace = async (
     // キャンバスのサイズをビデオフレームに合わせる
     canvasElement.width = videoElement.videoWidth;
     canvasElement.height = videoElement.videoHeight;
-    
+
     // ビデオフレームをキャンバスに描画
     try {
       context.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
@@ -144,25 +186,71 @@ export const captureAndAnalyzeFace = async (
       throw new Error(`ビデオフレームの描画に失敗しました: ${drawError instanceof Error ? drawError.message : "不明なエラー"}`);
     }
 
-    // キャンバスから画像データを取得
+    // キャンバスから画像データを取得（最適なサイズと品質）
     let imageData;
     let compressionQuality = 0.8; // 初期圧縮率（高品質）
     
     try {
-      imageData = canvasElement.toDataURL("image/jpeg", compressionQuality);
-      console.log("画像データを取得しました。サイズ:", imageData.length);
+      // まず画像サイズを確認して必要に応じて縮小
+      const maxDimension = 1280; // 最大サイズを1280pxに制限
+      let width = canvasElement.width;
+      let height = canvasElement.height;
       
+      // アスペクト比を維持しながらサイズを縮小
+      if (width > maxDimension || height > maxDimension) {
+        if (width > height) {
+          height = Math.round(height * (maxDimension / width));
+          width = maxDimension;
+        } else {
+          width = Math.round(width * (maxDimension / height));
+          height = maxDimension;
+        }
+        
+        // リサイズ用の一時キャンバスを作成
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = width;
+        tempCanvas.height = height;
+        const tempContext = tempCanvas.getContext('2d');
+        
+        if (tempContext) {
+          tempContext.drawImage(canvasElement, 0, 0, width, height);
+          imageData = tempCanvas.toDataURL("image/jpeg", compressionQuality);
+          console.log(`画像をリサイズしました: ${canvasElement.width}x${canvasElement.height} -> ${width}x${height}`);
+        } else {
+          // リサイズできない場合は元のサイズで続行
+          imageData = canvasElement.toDataURL("image/jpeg", compressionQuality);
+        }
+      } else {
+        // リサイズ不要の場合はそのまま取得
+        imageData = canvasElement.toDataURL("image/jpeg", compressionQuality);
+      }
+      
+      console.log("画像データを取得しました。サイズ:", imageData.length);
+
       // データサイズが大きすぎる場合は圧縮率を下げる（1MB以上）
       if (imageData.length > 1000000) {
         console.log("画像サイズが大きいため、圧縮率を下げます:", imageData.length);
         compressionQuality = 0.6; // 圧縮率を下げる
-        imageData = canvasElement.toDataURL("image/jpeg", compressionQuality);
-        console.log("再圧縮後の画像サイズ:", imageData.length);
         
+        // リサイズした一時キャンバスがあればそれを使用
+        if (typeof tempCanvas !== 'undefined') {
+          imageData = tempCanvas.toDataURL("image/jpeg", compressionQuality);
+        } else {
+          imageData = canvasElement.toDataURL("image/jpeg", compressionQuality);
+        }
+        
+        console.log("再圧縮後の画像サイズ:", imageData.length);
+
         // それでも大きい場合はさらに圧縮
         if (imageData.length > 800000) {
           compressionQuality = 0.4;
-          imageData = canvasElement.toDataURL("image/jpeg", compressionQuality);
+          
+          if (typeof tempCanvas !== 'undefined') {
+            imageData = tempCanvas.toDataURL("image/jpeg", compressionQuality);
+          } else {
+            imageData = canvasElement.toDataURL("image/jpeg", compressionQuality);
+          }
+          
           console.log("さらに圧縮後の画像サイズ:", imageData.length);
         }
       }
@@ -191,53 +279,73 @@ export const captureAndAnalyzeFace = async (
 const sendImageToAPI = async (imageData: string): Promise<{success: boolean, data?: any, error?: Error}> => {
   try {
     console.log("顔認識APIを呼び出します。データサイズ:", imageData.length);
-    
+
     // APIリクエストの開始時間を記録
     const startTime = Date.now();
-    
-    const response = await fetch("/api/analyze-face", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ image: imageData }),
-    });
-    
-    // APIリクエストの完了時間を記録
-    const endTime = Date.now();
-    const elapsedTime = endTime - startTime;
-    console.log(`APIレスポンスを受け取りました: ステータス=${response.status}, 処理時間=${elapsedTime}ms`);
 
-    // レスポンスのステータスコードを確認
-    if (!response.ok) {
-      let errorMessage;
-      try {
-        const errorData = await response.json();
-        errorMessage = errorData.message || errorData.error || `顔認識APIからエラーレスポンスを受け取りました (${response.status})`;
-      } catch (jsonError) {
-        errorMessage = `顔認識APIからエラーレスポンスを受け取りました (${response.status}): JSONの解析に失敗しました`;
+    // フェッチリクエストにタイムアウトを設定
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15秒タイムアウト
+
+    try {
+      const response = await fetch("/api/analyze-face", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ image: imageData }),
+        signal: controller.signal
+      });
+
+      // タイムアウトタイマーをクリア
+      clearTimeout(timeoutId);
+
+      // APIリクエストの完了時間を記録
+      const endTime = Date.now();
+      const elapsedTime = endTime - startTime;
+      console.log(`APIレスポンスを受け取りました: ステータス=${response.status}, 処理時間=${elapsedTime}ms`);
+
+      // レスポンスのステータスコードを確認
+      if (!response.ok) {
+        let errorMessage;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.message || errorData.error || `顔認識APIからエラーレスポンスを受け取りました (${response.status})`;
+        } catch (jsonError) {
+          errorMessage = `顔認識APIからエラーレスポンスを受け取りました (${response.status}): JSONの解析に失敗しました`;
+        }
+
+        console.error(errorMessage);
+        throw new Error(errorMessage);
+      }
+
+      // 正常なレスポンスを解析
+      const result = await response.json();
+      console.log("顔認識結果:", result);
+
+      // 成功フラグを確認
+      if (!result.success) {
+        return {
+          success: false,
+          error: new Error(result.message || "顔認識APIからエラーが返されました")
+        };
+      }
+
+      return {
+        success: true,
+        data: result
+      };
+    } catch (fetchError) {
+      // タイムアウトタイマーをクリア
+      clearTimeout(timeoutId);
+      
+      // AbortErrorの場合はタイムアウトメッセージに変換
+      if (fetchError.name === 'AbortError') {
+        throw new Error("顔認識APIリクエストがタイムアウトしました（15秒）");
       }
       
-      console.error(errorMessage);
-      throw new Error(errorMessage);
+      throw fetchError;
     }
-
-    // 正常なレスポンスを解析
-    const result = await response.json();
-    console.log("顔認識結果:", result);
-
-    // 成功フラグを確認
-    if (!result.success) {
-      return {
-        success: false,
-        error: new Error(result.message || "顔認識APIからエラーが返されました")
-      };
-    }
-
-    return {
-      success: true,
-      data: result
-    };
   } catch (error) {
     console.error("API呼び出し中にエラーが発生しました:", error);
     return {
