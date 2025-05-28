@@ -146,9 +146,15 @@ export default function InteractiveAvatar({
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
         throw new Error(
-          `アクセストークン取得エラー: ${response.status} ${response.statusText}${
+          `アクセストークン取得エラー: ${response.status} ${
+            response.statusText
+          }${
             errorData
-              ? ` - ${errorData.details || errorData.error || JSON.stringify(errorData)}`
+              ? ` - ${
+                  errorData.details ||
+                  errorData.error ||
+                  JSON.stringify(errorData)
+                }`
               : ""
           }`
         );
@@ -166,7 +172,9 @@ export default function InteractiveAvatar({
     } catch (error) {
       console.error("Error fetching access token:", error);
       setDebug(
-        `アクセストークン取得エラー: ${error instanceof Error ? error.message : "不明なエラー"}`
+        `アクセストークン取得エラー: ${
+          error instanceof Error ? error.message : "不明なエラー"
+        }`
       );
       throw error; // エラーを再スローして呼び出し元で処理できるようにする
     }
@@ -247,7 +255,7 @@ export default function InteractiveAvatar({
 
       setDebug("アバターセッション作成中...");
       const res = await avatar.current.createStartAvatar({
-        quality: AvatarQuality.Medium,
+        quality: AvatarQuality.High,
         avatarName: avatarId,
         knowledgeId: knowledgeId,
         voice: {
@@ -299,7 +307,9 @@ export default function InteractiveAvatar({
       } catch (micError) {
         console.error("マイクの権限エラー:", micError);
         setDebug(
-          `マイクの権限が許可されていません: ${micError instanceof Error ? micError.message : "不明なエラー"}`
+          `マイクの権限が許可されていません: ${
+            micError instanceof Error ? micError.message : "不明なエラー"
+          }`
         );
       }
 
@@ -308,7 +318,9 @@ export default function InteractiveAvatar({
     } catch (error) {
       console.error("Error starting avatar session:", error);
       setDebug(
-        `セッション開始エラー: ${error instanceof Error ? error.message : "不明なエラー"}`
+        `セッション開始エラー: ${
+          error instanceof Error ? error.message : "不明なエラー"
+        }`
       );
 
       if (fullScreenMode) {
@@ -349,7 +361,9 @@ export default function InteractiveAvatar({
     } catch (error) {
       console.error("イントロメッセージ再生エラー:", error);
       setDebug(
-        `イントロメッセージ再生エラー: ${error instanceof Error ? error.message : "不明なエラー"}`
+        `イントロメッセージ再生エラー: ${
+          error instanceof Error ? error.message : "不明なエラー"
+        }`
       );
     }
   };
@@ -418,7 +432,9 @@ export default function InteractiveAvatar({
         } catch (micError) {
           console.error("マイクの権限エラー:", micError);
           setDebug(
-            `マイクの権限が許可されていません: ${micError instanceof Error ? micError.message : "不明なエラー"}`
+            `マイクの権限が許可されていません: ${
+              micError instanceof Error ? micError.message : "不明なエラー"
+            }`
           );
           return; // 権限がない場合は処理を中断
         }
@@ -430,7 +446,9 @@ export default function InteractiveAvatar({
     } catch (error) {
       console.error("マイク切り替えエラー:", error);
       setDebug(
-        `マイク切り替えエラー: ${error instanceof Error ? error.message : "不明なエラー"}`
+        `マイク切り替えエラー: ${
+          error instanceof Error ? error.message : "不明なエラー"
+        }`
       );
     }
   };
@@ -477,7 +495,9 @@ export default function InteractiveAvatar({
     } catch (error) {
       console.error("設定の保存中にエラーが発生しました:", error);
       setDebug(
-        `設定の保存中にエラー: ${error instanceof Error ? error.message : "不明なエラー"}`
+        `設定の保存中にエラー: ${
+          error instanceof Error ? error.message : "不明なエラー"
+        }`
       );
     } finally {
       setIsLoadingSession(false);
