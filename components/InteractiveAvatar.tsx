@@ -255,7 +255,7 @@ export default function InteractiveAvatar({
 
       setDebug("アバターセッション作成中...");
       const res = await avatar.current.createStartAvatar({
-        quality: AvatarQuality.High,
+        quality: "very_high",
         avatarName: avatarId,
         knowledgeId: knowledgeId,
         voice: {
